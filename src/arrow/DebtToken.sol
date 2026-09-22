@@ -11,7 +11,7 @@ import {WadRayMath} from "./libs/WadRayMath.sol";
 ///         V2's VariableDebtToken pattern, ADAPTED for V3 isolated-position
 ///         accounting: scaled balances are keyed by `(user, adapter)` pair
 ///         instead of by user only. Each market (adapter) has its own
-///         independent debt counter — borrows, repays, and liquidations
+///         independent debt counter: borrows, repays, and liquidations
 ///         scope to a single market.
 /// @dev    transfer/transferFrom/approve all revert. Mint/burn restricted to
 ///         the LendingPool. The token implements IERC20Metadata so wallets
@@ -93,7 +93,7 @@ contract DebtToken is IERC20, IERC20Metadata {
     }
 
     /// @notice Aggregate nominal debt of `user` across every market.
-    /// @dev    DO NOT USE FOR ECONOMIC CHECKS — aggregate view only, exposed
+    /// @dev    DO NOT USE FOR ECONOMIC CHECKS: aggregate view only, exposed
     ///         for IERC20 compliance and UI/event consumers. Core code
     ///         (LendingPool, LiquidationProxy, StabilityPool) MUST call
     ///         `balanceOf(user, adapter)` instead.
@@ -124,7 +124,7 @@ contract DebtToken is IERC20, IERC20Metadata {
     // ---- Per-market views (canonical API) --------------------------------
 
     /// @notice Nominal debt of `user` ON `adapter` at the current pool index.
-    ///         This is the CANONICAL accessor — the single number the protocol
+    ///         This is the CANONICAL accessor: the single number the protocol
     ///         consults for HF checks, repay limits, and liquidation seizure
     ///         caps. Each market is independent: a user can have non-zero
     ///         debt on one adapter and zero on another.
@@ -133,7 +133,7 @@ contract DebtToken is IERC20, IERC20Metadata {
         return _scaledBalances[user][adapter].rayMul(idx);
     }
 
-    /// @notice Per-market scaled supply (raw — not multiplied by index).
+    /// @notice Per-market scaled supply (raw: not multiplied by index).
     function scaledTotalSupply(address adapter) external view returns (uint256) {
         return _scaledTotalSupplyByAdapter[adapter];
     }
@@ -157,7 +157,7 @@ contract DebtToken is IERC20, IERC20Metadata {
     // ---- Aggregate views (UI / events ONLY) ------------------------------
 
     /// @notice Aggregate nominal debt of `user` across every market.
-    /// @dev    DO NOT USE FOR ECONOMIC CHECKS — aggregate view only. Core
+    /// @dev    DO NOT USE FOR ECONOMIC CHECKS: aggregate view only. Core
     ///         protocol logic MUST use `balanceOf(user, adapter)`. Use this
     ///         for UI summary cards, event payloads, off-chain dashboards.
     function totalUserDebtAcrossMarkets(address user) external view returns (uint256) {

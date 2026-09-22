@@ -12,7 +12,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IsagUSD} from "./interfaces/IsagUSD.sol";
 
 /// @title sagUSD
-/// @notice Staked Agama USD — an ERC-4626 vault that accrues yield from the
+/// @notice Staked Agama USD: an ERC-4626 vault that accrues yield from the
 ///         Agama private-credit strategy. Users deposit agUSD and receive
 ///         sagUSD shares. Yield is pushed into the vault by the Queue via a
 ///         direct agUSD mint, which increases totalAssets() and therefore the
@@ -25,7 +25,7 @@ import {IsagUSD} from "./interfaces/IsagUSD.sol";
 ///
 ///         Pause semantics: GUARDIAN_ROLE pauses; GOVERNOR_ROLE unpauses.
 ///         Pausing blocks deposit/mint/withdraw/redeem. Yield can still be
-///         pushed (totalAssets increases) — share price is not frozen.
+///         pushed (totalAssets increases): share price is not frozen.
 contract sagUSD is IsagUSD, ERC4626, AccessControl, Pausable, ReentrancyGuard {
     using Math for uint256;
 
@@ -33,7 +33,7 @@ contract sagUSD is IsagUSD, ERC4626, AccessControl, Pausable, ReentrancyGuard {
 
     bytes32 public constant GOVERNOR_ROLE = keccak256("GOVERNOR_ROLE");
     bytes32 public constant GUARDIAN_ROLE = keccak256("GUARDIAN_ROLE");
-    /// @notice Held by agUSDQueue — the only address authorised to syncYield.
+    /// @notice Held by agUSDQueue: the only address authorised to syncYield.
     bytes32 public constant OPERATOR_ROLE  = keccak256("OPERATOR_ROLE");
 
     uint256 public constant MAX_FEE_BPS = 2_000; // 20 %

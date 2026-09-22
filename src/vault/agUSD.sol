@@ -7,7 +7,7 @@ import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 
 /// @title agUSD
-/// @notice Agama USD — a fully-collateralised stablecoin backed 1:1 by USDC.
+/// @notice Agama USD: a fully-collateralised stablecoin backed 1:1 by USDC.
 ///         Minting and burning are restricted to addresses with MINTER_ROLE
 ///         (expected: agUSDQueue). Transfers are pausable by the GUARDIAN_ROLE
 ///         for emergency circuit-breaking; only GOVERNOR_ROLE can unpause.

@@ -5,7 +5,7 @@ interface IagUSDQueue {
     // ---- Structs -----------------------------------------------------------
 
     struct RedemptionRequest {
-        address requester;   // address that locked agUSD — only they can cancel
+        address requester;   // address that locked agUSD: only they can cancel
         address recipient;   // address that receives USDC on fulfillment
         uint256 agUSDLocked; // agUSD held by this contract for this request
         uint256 usdcOwed;    // USDC to be returned (= agUSDLocked / SCALAR)

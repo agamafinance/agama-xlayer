@@ -16,14 +16,14 @@ import {IagUSDQueue} from "./interfaces/IagUSDQueue.sol";
 /// @custom:xlayer On X Layer the `usdc` slot holds USDG (Paxos, 6 decimals).
 /// @notice Central clearinghouse for the Agama USD stablecoin system.
 ///
-///         DEPOSITS  — users send USDC, receive agUSD 1:1 (scaled for decimals).
-///         REDEMPTIONS — users lock agUSD; the Queue returns USDC either
+///         DEPOSITS : users send USDC, receive agUSD 1:1 (scaled for decimals).
+///         REDEMPTIONS: users lock agUSD; the Queue returns USDC either
 ///           instantly (if reserves allow) or via a FIFO queue when the
 ///           operator recalls liquidity from credit vaults.
-///         CREDIT ROUTING — the operator deploys idle USDC into whitelisted
+///         CREDIT ROUTING: the operator deploys idle USDC into whitelisted
 ///           ERC-4626 credit vaults (private-credit strategies) and recalls it
 ///           when redemptions need filling.
-///         YIELD SETTLEMENT — when credit strategies earn USDC, the operator
+///         YIELD SETTLEMENT: when credit strategies earn USDC, the operator
 ///           calls settleYield(): the Queue takes its protocol fee in USDC,
 ///           mints agUSD for the net amount directly to sagUSD, then calls
 ///           sagUSD.syncYield() so the vault can track the push and optionally
@@ -32,7 +32,7 @@ import {IagUSDQueue} from "./interfaces/IagUSDQueue.sol";
 /// @dev    Decimal accounting:
 ///           USDC  = 6 decimals
 ///           agUSD = 18 decimals
-///           SCALAR = 10^12 — multiply USDC amounts by SCALAR to get agUSD,
+///           SCALAR = 10^12: multiply USDC amounts by SCALAR to get agUSD,
 ///                            divide agUSD amounts by SCALAR to get USDC.
 ///           Floor rounding on USDC output: any sub-SCALAR agUSD remainder
 ///           stays in the system, accruing to sagUSD holders as a micro-yield.
@@ -69,7 +69,7 @@ contract agUSDQueue is IagUSDQueue, AccessControl, Pausable, ReentrancyGuard {
     IagUSD  public immutable agUSD;
     /// @notice USDC ERC-20 (6 decimals).
     IERC20  public immutable usdc;
-    /// @notice sagUSD vault — receives minted agUSD on yield settlements.
+    /// @notice sagUSD vault: receives minted agUSD on yield settlements.
     IsagUSD public immutable sagUSD;
 
     // ---- Parameters (GOVERNOR_ROLE) ----------------------------------------
@@ -258,7 +258,7 @@ contract agUSDQueue is IagUSDQueue, AccessControl, Pausable, ReentrancyGuard {
     ///
     /// @dev    OPERATOR_ROLE can also trigger cancellations via processRedemptions
     ///         skip logic, but cannot forcibly cancel an individual request on behalf
-    ///         of a user — the agUSD would only go back to the original requester.
+    ///         of a user: the agUSD would only go back to the original requester.
     function cancelRedemption(uint256 requestId) external nonReentrant {
         RedemptionRequest storage req = _requests[requestId];
         if (req.agUSDLocked == 0)          revert RequestNotFound(requestId);
@@ -279,7 +279,7 @@ contract agUSDQueue is IagUSDQueue, AccessControl, Pausable, ReentrancyGuard {
     /// @notice Process up to `maxCount` pending redemptions in FIFO order.
     ///         Burns agUSD and sends USDC for each processed entry.
     ///         Reverts if the USDC reserve is insufficient for ANY entry in the
-    ///         batch — operator should recall from credit vaults first.
+    ///         batch: operator should recall from credit vaults first.
     /// @return processed  Number of redemptions actually settled.
     function processRedemptions(uint256 maxCount)
         external
@@ -289,7 +289,7 @@ contract agUSDQueue is IagUSDQueue, AccessControl, Pausable, ReentrancyGuard {
     {
         uint256 head = queueHead;
         uint256 tail = nextRequestId;
-        if (head >= tail) return 0; // nothing queued — no-op, not an error
+        if (head >= tail) return 0; // nothing queued: no-op, not an error
 
         uint256 reserve = usdcReserve();
 
@@ -303,7 +303,7 @@ contract agUSDQueue is IagUSDQueue, AccessControl, Pausable, ReentrancyGuard {
             }
 
             if (reserve < req.usdcOwed) {
-                // Insufficient funds — stop; operator must recall more liquidity.
+                // Insufficient funds: stop; operator must recall more liquidity.
                 break;
             }
 
@@ -337,7 +337,7 @@ contract agUSDQueue is IagUSDQueue, AccessControl, Pausable, ReentrancyGuard {
         // forceApprove resets to 0 then sets, avoiding accumulated allowance from prior reverts.
         usdc.forceApprove(vault, usdcAmount);
         sharesOut = IERC4626(vault).deposit(usdcAmount, address(this));
-        // Reset allowance after use — belt-and-suspenders against vault calling transferFrom again.
+        // Reset allowance after use: belt-and-suspenders against vault calling transferFrom again.
         usdc.forceApprove(vault, 0);
 
         vaultDeployed[vault]  += usdcAmount;
@@ -373,7 +373,7 @@ contract agUSDQueue is IagUSDQueue, AccessControl, Pausable, ReentrancyGuard {
         uint256 deployedBefore = vaultDeployed[vault];
         uint256 deployedReduction;
         if (shares >= queueSharesBefore) {
-            deployedReduction = deployedBefore; // full exit — clear precisely
+            deployedReduction = deployedBefore; // full exit: clear precisely
         } else {
             deployedReduction = queueSharesBefore > 0
                 ? (deployedBefore * shares) / queueSharesBefore
@@ -460,7 +460,7 @@ contract agUSDQueue is IagUSDQueue, AccessControl, Pausable, ReentrancyGuard {
         // Require operator to have recalled all funds before removing.
         if (vaultDeployed[vault] > 0) revert InsufficientReserve(0, vaultDeployed[vault]);
         isVault[vault] = false;
-        // Remove from list (order not preserved — swap-and-pop).
+        // Remove from list (order not preserved: swap-and-pop).
         address[] storage list = _vaultList;
         for (uint256 i; i < list.length; ++i) {
             if (list[i] == vault) {

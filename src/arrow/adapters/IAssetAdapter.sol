@@ -5,7 +5,7 @@ pragma solidity 0.8.26;
 /// @notice Uniform interface between the LendingPool and each collateral asset
 ///         class. Adapters are responsible for valuation, custody of the
 ///         underlying RWA tokens, and per-user position bookkeeping. The
-///         LendingPool itself never holds RWA — it only routes calls.
+///         LendingPool itself never holds RWA: it only routes calls.
 /// @dev    `bytes data` is opaque to the LendingPool and decoded only by the
 ///         adapter. V1 encoding (ERC20 collateral): `abi.encode(uint256 amount)`.
 ///         V1 also enforces "1 user = 1 position per adapter": `getPositionKey`

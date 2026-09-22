@@ -167,9 +167,9 @@ contract ArrowLendingPool is ERC4626, ILendingPool, AccessControl, Pausable, Ree
         _reserve.init();
         testnetMode = _testnetMode;
 
-        // V1 production risk parameters — IDENTICAL on testnet and mainnet.
+        // V1 production risk parameters: IDENTICAL on testnet and mainnet.
         reserveFactorBps = 1000; // 10%
-        originationFeeBps = 0; // disabled — Aave-style, no origination fee
+        originationFeeBps = 0; // disabled: Aave-style, no origination fee
         vaultOpeningFee = 0;
         minBorrowAmount = 10 ** IERC20Metadata(address(usdr)).decimals(); // 1 unit of the asset
         supplyCap = type(uint256).max;
@@ -213,7 +213,7 @@ contract ArrowLendingPool is ERC4626, ILendingPool, AccessControl, Pausable, Ree
     /// @dev OZ ERC4626 inflation-attack mitigation. With offset = 6, the
     ///      virtual share count is 1e6, so an attacker depositing 1 wei of
     ///      USDr into an empty pool then donating N USDr only inflates
-    ///      share price by N / 1e6 instead of N — making the canonical
+    ///      share price by N / 1e6 instead of N: making the canonical
     ///      donation attack non-economical for any realistic N.
     function _decimalsOffset() internal pure override returns (uint8) {
         return 6;
@@ -275,10 +275,10 @@ contract ArrowLendingPool is ERC4626, ILendingPool, AccessControl, Pausable, Ree
 
         // Health-factor preview when there's still debt outstanding ON
         // THIS market. If oracle is stale, `getAssetValue` reverts inside
-        // the adapter — blocking partial withdraws while letting full
+        // the adapter: blocking partial withdraws while letting full
         // exits work (debt = 0 path skips the HF check entirely, and
         // `adapter.withdraw` itself doesn't depend on the oracle).
-        // V3: only the per-market debt is checked — withdrawing collateral
+        // V3: only the per-market debt is checked: withdrawing collateral
         // here cannot affect any other market's HF (their debt+collat are
         // isolated).
         uint256 debt = _userDebtFor(msg.sender, adapter);
@@ -315,7 +315,7 @@ contract ArrowLendingPool is ERC4626, ILendingPool, AccessControl, Pausable, Ree
 
         // HF after borrow at adapter MAX_LTV. `getAssetValue` reverts on stale
         // oracle, so a stale oracle naturally blocks new borrows.
-        // V3: debt is per-market — each adapter is checked against ITS OWN
+        // V3: debt is per-market: each adapter is checked against ITS OWN
         // debt only. No cross-collateral aggregation.
         uint256 collateralValue = IAssetAdapter(adapter).getAssetValue(msg.sender, data);
         uint256 newDebt = _userDebtFor(msg.sender, adapter) + amount;
@@ -350,8 +350,8 @@ contract ArrowLendingPool is ERC4626, ILendingPool, AccessControl, Pausable, Ree
         onlySupportedAdapter(adapter)
         returns (uint256 paid)
     {
-        // No oracle dependency — repay is always allowed (exit path).
-        // V3: repay is scoped to a market — only the user's debt on
+        // No oracle dependency: repay is always allowed (exit path).
+        // V3: repay is scoped to a market: only the user's debt on
         // `adapter` is reduced. No cross-market spillover.
         IAssetAdapter(adapter).getPositionKey(data); // sanity decode
         _reserve.updateState();
@@ -566,7 +566,7 @@ contract ArrowLendingPool is ERC4626, ILendingPool, AccessControl, Pausable, Ree
         _;
     }
 
-    /// @notice Per-market debt of `user` on `adapter` — the canonical
+    /// @notice Per-market debt of `user` on `adapter`: the canonical
     ///         number used by every economic check (HF, repay cap,
     ///         liquidation seizure target).
     function _userDebtFor(address user, address adapter) internal view returns (uint256) {
@@ -575,7 +575,7 @@ contract ArrowLendingPool is ERC4626, ILendingPool, AccessControl, Pausable, Ree
 
     /// @notice Per-market debt of `user` ON `adapter` plus their pending
     ///         pro-rata share of bad-debt redistribution. Bad debt is
-    ///         materialized lazily — this view applies the unsettled
+    ///         materialized lazily: this view applies the unsettled
     ///         delta on top of the on-chain per-market balance.
     function _userActualDebt(address adapter, address user) internal view returns (uint256) {
         uint256 base = DEBT_TOKEN.balanceOf(user, adapter);
