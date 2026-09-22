@@ -63,11 +63,16 @@ contract AgamaAccount is ReentrancyGuard {
     address public owner;
     address public factory;
 
+    /// @notice Stock markets this account has used for Earn. Lets Amplify
+    ///         know whether its equity is backing an Earn position.
+    address[] public earnMarkets;
+    mapping(address adapter => bool) public isEarnMarket;
+
     event EarnOpened(address indexed adapter, uint256 stockAmount, uint256 borrowed, uint256 shares);
     event EarnClosed(address indexed adapter, uint256 repaid, uint256 stockReturned);
     event SoftDeleveraged(address indexed caller, address indexed adapter, uint256 repaid, uint256 hfAfter);
     event AmplifyOpened(uint256 equityUsdg, uint256 debt, uint256 pledgedShares, uint256 loops);
-    event AmplifyClosed(uint256 repaid, uint256 sharesOut, uint256 usdgOut);
+    event AmplifyClosed(uint256 repaid, uint256 sharesOut, uint256 usdgOut, bool keptForEarn);
     event AutoUnwound(address indexed caller, uint256 borrowRateRay, uint256 vaultApyRay);
 
     error AlreadyInitialized();
@@ -117,6 +122,7 @@ contract AgamaAccount is ReentrancyGuard {
         auth(user)
     {
         _ensurePoolPosition();
+        _recordEarnMarket(stockAdapter);
         IERC20 stock = IERC20(IArrowAdapter(stockAdapter).getAssetToken());
         stock.forceApprove(stockAdapter, stockAmount);
         POOL.depositAsset(stockAdapter, abi.encode(stockAmount));
@@ -135,6 +141,7 @@ contract AgamaAccount is ReentrancyGuard {
         auth(user)
     {
         _ensurePoolPosition();
+        _recordEarnMarket(stockAdapter);
         IERC20(IArrowAdapter(stockAdapter).getAssetToken()).forceApprove(stockAdapter, amount);
         POOL.depositAsset(stockAdapter, abi.encode(amount));
     }
@@ -239,10 +246,14 @@ contract AgamaAccount is ReentrancyGuard {
     /// @notice Unwind the loop and send the equity to the owner, as USDG if
     ///         `redeem` (needs instant liquidity in the vault reserve), as
     ///         vault shares otherwise.
+    ///         If an Earn position is still open, the equity stays in the
+    ///         account as free vault shares instead: it was the Earn buffer
+    ///         before `openFromEarn`, and it goes back to being the buffer.
     function amplifyClose(address user, bool redeem) external nonReentrant auth(user) {
         uint256 repaid = _unwind();
-        (uint256 sharesOut, uint256 usdgOut) = _releasePledge(redeem);
-        emit AmplifyClosed(repaid, sharesOut, usdgOut);
+        bool keep = hasEarnDebt();
+        (uint256 sharesOut, uint256 usdgOut) = keep ? _unpledgeAll() : _releasePledge(redeem);
+        emit AmplifyClosed(repaid, sharesOut, usdgOut, keep);
     }
 
     /// @notice Permissionless spread guard: if Arrow's borrow rate + 1% is
@@ -272,6 +283,18 @@ contract AgamaAccount is ReentrancyGuard {
     // =====================================================================
     //                              VIEWS
     // =====================================================================
+
+    /// @notice True while any Earn market of this account carries debt.
+    function hasEarnDebt() public view returns (bool) {
+        for (uint256 i; i < earnMarkets.length; ++i) {
+            if (POOL.getPositionScaledDebt(earnMarkets[i], address(this), "") > 0) return true;
+        }
+        return false;
+    }
+
+    function earnMarketCount() external view returns (uint256) {
+        return earnMarkets.length;
+    }
 
     function freeShares() external view returns (uint256) {
         return VAULT.balanceOf(address(this));
@@ -362,6 +385,20 @@ contract AgamaAccount is ReentrancyGuard {
         }
         uint256 left = POOL.getPositionScaledDebt(va, address(this), "");
         if (left > 0) revert UnwindIncomplete(left);
+    }
+
+    function _recordEarnMarket(address adapter) internal {
+        if (isEarnMarket[adapter]) return;
+        isEarnMarket[adapter] = true;
+        earnMarkets.push(adapter);
+    }
+
+    /// @dev Pledged shares back to the account as free shares (Earn buffer).
+    function _unpledgeAll() internal returns (uint256 sharesKept, uint256 usdgKept) {
+        uint256 bal = VAULT_ADAPTER.balanceOf(address(this));
+        if (bal > 0) POOL.withdrawAsset(address(VAULT_ADAPTER), abi.encode(bal));
+        sharesKept = VAULT.balanceOf(address(this));
+        usdgKept = USDG.balanceOf(address(this));
     }
 
     function _releasePledge(bool redeem) internal returns (uint256 sharesOut, uint256 usdgOut) {

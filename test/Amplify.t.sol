@@ -95,6 +95,28 @@ contract AmplifyForkTest is BaseFork {
         acct.autoUnwind();
     }
 
+    /// Found while extending the e2e: closing an Amplify stacked on Earn used
+    /// to send the shares to the wallet, leaving Earn without its buffer (and
+    /// unable to close without a full top-up). The equity now stays in the
+    /// account as the Earn buffer.
+    function test_closeStacked_restoresEarnBuffer() public {
+        _openEarn(alice, 10e18, 2_500);
+        uint256 bufferBefore = _account(alice).freeSharesValue();
+        vm.startPrank(alice);
+        d.amplify.openFromEarn(20_000);
+        assertEq(_account(alice).freeShares(), 0);
+        d.amplify.close(true); // even with redeem=true, equity stays for Earn
+        vm.stopPrank();
+
+        AgamaAccount acct = _account(alice);
+        assertTrue(acct.hasEarnDebt());
+        assertApproxEqRel(acct.redeemableUsdg(), bufferBefore, 0.001e18, "buffer restored");
+        assertEq(d.vault.balanceOf(alice), 0, "nothing leaked to the wallet");
+
+        // Earn closes on its own buffer, no (or dust) top-up needed.
+        assertLt(d.earn.closeShortfall(alice, address(d.tsla)), 1e6);
+    }
+
     function test_stackOnEarn_pledgesFreeShares() public {
         _openEarn(alice, 10e18, 2_500); // 1,050 USDG of free shares
         vm.prank(alice);
