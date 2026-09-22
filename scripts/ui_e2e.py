@@ -8,7 +8,7 @@ the testnet RPC; `eth_sendTransaction` is signed and broadcast by `cast` with a
 fresh throwaway key funded by the deployer, so every click is a real testnet
 transaction. Screenshots land in ../agama-xlayer-local/ui-e2e/.
 
-Flow: page loads with live prices -> connect -> faucet -> Earn open -> Amplify
+Flow: page loads with live prices -> connect -> faucet -> Earn open -> Buy and Earn -> Amplify
 open -> Amplify close -> Earn close -> Arrow supply -> Arrow withdraw.
 Fails on any page error or any transaction error shown by the app.
 """
@@ -232,7 +232,20 @@ async def main():
         ok(shown, "Earn position shown (collateral, debt, health factor)")
         await shot(page, "03-earn-position")
 
-        step("5. Amplify: 300 USDG at the default leverage")
+        step("5. Buy and Earn: 200 USDG buys the stock and opens the position")
+        await page.get_by_role("tab", name="Buy and Earn").click()
+        await page.wait_for_timeout(1500)
+        await page.fill("#buy-amount", "200")
+        await wait_text(page, "section[aria-labelledby=buy-title]", lambda t: "-" not in t.split("You receive")[-1][:40])
+        await shot(page, "03b-buy-ticket")
+        await click_tx(page, "Approve USDG", scope="section[aria-labelledby=buy-title]")
+        await click_tx(page, "Buy and earn", scope="section[aria-labelledby=buy-title]")
+        grew = await wait_text(page, "section[aria-labelledby=pos-title]",
+                               lambda t: "No wTSLAx position yet" not in t)
+        ok(grew, "position grew from the bought stock")
+        await shot(page, "03c-buy-position")
+
+        step("6. Amplify: 300 USDG at the default leverage")
         await page.goto(BASE + "/amplify")
         await page.wait_for_timeout(5000)
         await page.fill("#amp-amount", "300")
@@ -244,11 +257,11 @@ async def main():
         ok(shown, "Amplify position shown (exposure, debt, leverage)")
         await shot(page, "04-amplify-position")
 
-        step("6. Amplify: close to USDG")
+        step("7. Amplify: close to USDG")
         await click_tx(page, "Close to USDG")
         await shot(page, "05-amplify-closed")
 
-        step("7. Earn: close")
+        step("8. Earn: close")
         await page.goto(BASE + "/")
         await page.wait_for_timeout(6000)
         sec = page.locator("section[aria-labelledby=pos-title]")
@@ -268,7 +281,7 @@ async def main():
         ok(closed, f"Earn closed via '{label.strip()}', stock back in the wallet")
         await shot(page, "06-earn-closed")
 
-        step("8. Arrow: supply then withdraw 100 USDG")
+        step("9. Arrow: supply then withdraw 100 USDG")
         await page.goto(BASE + "/lend")
         await page.wait_for_timeout(5000)
         await page.fill("#lend-amount", "100")
