@@ -3,6 +3,7 @@ pragma solidity 0.8.26;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 
 import {AgamaAccount} from "./AgamaAccount.sol";
 import {AgamaAccountFactory} from "./AgamaAccountFactory.sol";
@@ -18,7 +19,7 @@ import {IArrowPool} from "../interfaces/IArrowPool.sol";
 ///                the borrowed amount.
 ///         close: repay from the vault shares, stock back to the wallet,
 ///                leftover yield sent as vault shares.
-contract AgamaEarnRouter {
+contract AgamaEarnRouter is AccessControl {
     using SafeERC20 for IERC20;
 
     uint256 internal constant BPS = 10_000;
@@ -34,11 +35,27 @@ contract AgamaEarnRouter {
 
     error LtvTooHigh(uint256 ltvBps, uint256 maxLtvBps);
     error MarketClosed();
+    error NotAZap(address caller);
 
-    constructor(AgamaAccountFactory factory, IArrowPool pool) {
+    bytes32 public constant GOVERNOR_ROLE = keccak256("GOVERNOR_ROLE");
+
+    /// @notice Contracts allowed to open a position on behalf of a user
+    ///         (AgamaZapRouter: buy the stock and open Earn in one call).
+    mapping(address zap => bool) public isZap;
+
+    event ZapSet(address indexed zap, bool allowed);
+
+    constructor(AgamaAccountFactory factory, IArrowPool pool, address admin) {
         FACTORY = factory;
         POOL = pool;
         USDG = IERC20(pool.asset());
+        _grantRole(DEFAULT_ADMIN_ROLE, admin);
+        _grantRole(GOVERNOR_ROLE, admin);
+    }
+
+    function setZap(address zap, bool allowed) external onlyRole(GOVERNOR_ROLE) {
+        isZap[zap] = allowed;
+        emit ZapSet(zap, allowed);
     }
 
     /// @param adapter Arrow xStock adapter (e.g. the wTSLAx market).
@@ -53,6 +70,23 @@ contract AgamaEarnRouter {
         borrowed = (IArrowAdapter(adapter).valueOf(amount) * ltvBps) / BPS;
         AgamaAccount(account).earnOpen(msg.sender, adapter, amount, borrowed);
         emit Opened(msg.sender, adapter, amount, ltvBps, borrowed);
+    }
+
+    /// @notice Same as `open`, for `user`, called by an allowlisted zap that
+    ///         already holds the stock tokens. The position belongs to `user`.
+    function openFor(address user, address adapter, uint256 amount, uint256 ltvBps)
+        external
+        returns (uint256 borrowed)
+    {
+        if (!isZap[msg.sender]) revert NotAZap(msg.sender);
+        uint256 maxLtv = IArrowAdapter(adapter).MAX_LTV();
+        if (ltvBps > maxLtv) revert LtvTooHigh(ltvBps, maxLtv);
+        if (ltvBps > 0 && !IArrowAdapter(adapter).borrowAllowed()) revert MarketClosed();
+        address account = FACTORY.getOrCreate(user);
+        IERC20(IArrowAdapter(adapter).getAssetToken()).safeTransferFrom(msg.sender, account, amount);
+        borrowed = (IArrowAdapter(adapter).valueOf(amount) * ltvBps) / BPS;
+        AgamaAccount(account).earnOpen(user, adapter, amount, borrowed);
+        emit Opened(user, adapter, amount, ltvBps, borrowed);
     }
 
     function addCollateral(address adapter, uint256 amount) external {
