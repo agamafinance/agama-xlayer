@@ -73,8 +73,21 @@ def cast(*args):
     return r.stdout.strip()
 
 
+LAST_BLOCK = [0]  # block of our last mined tx: reads never go below it
+
+
 def call(to, sig, *args):
-    return cast("call", to, sig, *args)
+    # Public testnet RPC nodes are load-balanced and can lag a block or two:
+    # read at (at least) the block of our last transaction, retry until served.
+    if not LAST_BLOCK[0]:
+        return cast("call", to, sig, *args)
+    for attempt in range(20):
+        try:
+            return cast("call", to, sig, *args, "--block", str(LAST_BLOCK[0]))
+        except RuntimeError:
+            if attempt == 19:
+                raise
+            time.sleep(1)
 
 
 def num(s):
@@ -83,10 +96,24 @@ def num(s):
 
 def send(who, to, sig, *args, value=None):
     extra = ["--value", str(value)] if value else []
-    out = cast("send", to, sig, *args, "--private-key", K[who], "--json", *extra)
+    call_args = [sig, *args] if sig else []  # plain value transfer: no calldata
+    for attempt in range(6):
+        try:
+            out = cast("send", to, *call_args, "--private-key", K[who], "--json", *extra)
+            break
+        except RuntimeError as e:
+            # The public testnet RPC is load-balanced: a node can lag one block
+            # behind and hand out a stale nonce. Wait and retry.
+            if attempt < 5 and ("nonce too low" in str(e) or "already known" in str(e)):
+                time.sleep(3)
+                continue
+            raise
     tx = json.loads(out)
     if tx.get("status") not in ("0x1", 1, "1"):
         raise RuntimeError(f"tx reverted: {sig}")
+    bn = tx.get("blockNumber")
+    if bn is not None:
+        LAST_BLOCK[0] = max(LAST_BLOCK[0], int(bn, 16) if isinstance(bn, str) else int(bn))
     return tx["transactionHash"]
 
 
@@ -137,6 +164,9 @@ def keeper(jobs):
                          capture_output=True, text=True)
     for line in out.stdout.strip().splitlines():
         print("   keeper |", line)
+    # The keeper mined its own txs: move the read floor past them.
+    time.sleep(3)
+    LAST_BLOCK[0] = max(LAST_BLOCK[0], num(cast("block-number")))
 
 
 def feed(ticker):

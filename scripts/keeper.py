@@ -94,7 +94,15 @@ def call(to, sig, *args, rpc=RPC):
 def send(to, sig, *args):
     if not KEY:
         raise RuntimeError("KEEPER_KEY not set")
-    return cast("send", to, sig, *args, "--private-key", KEY, "--json")
+    for attempt in range(6):
+        try:
+            return cast("send", to, sig, *args, "--private-key", KEY, "--json")
+        except RuntimeError as e:
+            # Load-balanced public RPCs can serve a stale nonce: wait and retry.
+            if attempt < 5 and ("nonce too low" in str(e) or "already known" in str(e)):
+                time.sleep(3)
+                continue
+            raise
 
 
 def first_int(s):
