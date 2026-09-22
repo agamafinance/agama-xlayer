@@ -3,6 +3,7 @@
 **Earn on your stocks** and **Amplify**: two one-click products on top of an Arrow Finance lending pool on X Layer, deployed by Agama as part of the Arrow x Agama partnership (Arrow runs the same model on Robinhood Chain).
 
 - **Earn on your stocks.** Deposit a tokenized stock (xStocks by Backed: wTSLAx, wNVDAx, wSPYx, wAAPLx), borrow USDG at the LTV you choose, and the USDG goes into the Agama RWA vault. You keep the stock exposure and earn the vault yield minus the borrow rate on the borrowed amount. The vault shares stay in your account as a buffer: if the stock falls, anyone can trigger a soft deleverage that repays debt from those shares. **Your stock is never the first thing sold.**
+- **Buy and Earn.** Do not hold the stock yet? One transaction buys it through the OKX Onchain OS DEX aggregator and opens the Earn position with it.
 - **Amplify.** Loop the Agama vault on Arrow up to 3x in one transaction. `net APY = vaultAPY + (L - 1) x (vaultAPY - borrowAPR)`. If the carry turns negative, anyone can unwind the loop back to 1x.
 
 Built for OKX Dev Day 2026, track **Build a Market** (tokenized stocks and RWA on X Layer).
@@ -59,6 +60,7 @@ flowchart LR
 | `ArrowStabilityPool` | Liquidation backstop (Arrow model). `liquidate` is permissionless. Seized stocks are sold to anyone at the oracle price minus 3% (`buyCollateral`), since X Layer DEX depth for xStocks is a few dollars. Seized vault shares are redeemed with priority. |
 | `DataStreamsStockOracle` | Stores prices a lending market can read. Verifies Chainlink Data Streams v11 reports on-chain (permissionless) and accepts a bounded keeper relay. Market status aware (24/5), sequencer-uptime check, never falls back to a default price. |
 | `AgamaAccount` | The borrower of record, one clone per user. Earn open/close, `softDeleverage` (anyone, HF < 1.15 -> back to 1.40), Amplify loop and unwind, `autoUnwind` spread guard. |
+| `AgamaZapRouter` | Buy and Earn. Calls the OKX DEX aggregator with calldata built off-chain, measures what actually arrived, and opens the Earn position for the buyer. Only governor-allowlisted routers can be called or approved, and the amount bought is checked against the aggregator's `minReceiveAmount`. |
 | `agUSDQueue` / `sagUSD` | The Agama vault on USDG. On X Layer it gains a `PRIORITY_ROLE` for the stability pool and a one-shot **forbidden vault**: the vault can never lend into the pool that accepts its own shares (the Stream xUSD / Elixir loop). |
 
 ## Risk parameters (v1)
@@ -86,7 +88,7 @@ Imported unchanged: `DebtToken`, rate and reserve libraries, `agUSD`, `sagUSD`.
 
 ```bash
 forge build
-forge test                         # 46 tests, most on a fork of X Layer mainnet (real USDG, real xStocks)
+forge test                         # 54 tests, most on a fork of X Layer mainnet (real USDG, real xStocks)
 
 # local X Layer mainnet fork with the full stack and real Chainlink prices
 anvil --fork-url https://rpc.xlayer.tech --chain-id 1961 &
@@ -143,6 +145,28 @@ E2E PASSED
 ### X Layer mainnet (chain 196)
 
 `script/Deploy.s.sol` targets the real USDG and Backed wrappers, with small caps (5,000 USDG supply, 2,000 USDG borrow). The 46 Foundry tests and the same end-to-end scenario run on a fork of X Layer mainnet (`./scripts/fork-reset.sh && python3 scripts/e2e.py fork`).
+
+## OKX integrations
+
+| Piece | What it is used for |
+|---|---|
+| X Layer | Every contract, verified on the OKLink explorer |
+| xStocks (Backed) | Collateral, through the ERC-4626 wrappers |
+| USDG | Base asset of the Arrow pool and of the Agama vault |
+| Onchain OS DEX API | The Buy and Earn zap: `/api/v6/dex/aggregator/{quote,approve-transaction,swap}` on `chainIndex=196`, signed server side (`scripts/okx_dex.py`, and the app's `/api/zap` route) |
+| OKX Wallet | First connector in the app |
+
+The zap runs against the real aggregator on a fork of X Layer mainnet:
+
+```bash
+anvil --fork-url https://rpc.xlayer.tech --chain-id 196 --port 8546 &
+DEPLOY_FILE=196-fork.json forge script script/Deploy.s.sol --rpc-url http://127.0.0.1:8546 --broadcast --private-key <anvil key>
+python3 scripts/zap_check.py 200
+# quote: 0.527058 wTSLAx at $379.66 -> buyAndEarn mined in 1,307,394 gas
+# position: 0.527023 wTSLAx worth 200.14 USDG, debt 50.03 USDG, HF 1.600
+```
+
+Two things we learned doing it, both handled in the code: the aggregator's JIT routes are signed per wallet and expire within seconds, so the zap pins AMM routes with `dexIds`; and those market-maker signatures are bound to chain 196, so a fork must keep that chain id.
 
 ## Oracle: how prices reach X Layer
 
