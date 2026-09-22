@@ -29,8 +29,11 @@ abstract contract BaseFork is Test, Deployer {
     uint256 internal constant SPY_PX = 660e18;
     uint256 internal constant AAPL_PX = 250e18;
 
+    /// @dev Pinned: deterministic state and RPC responses cached between runs.
+    uint256 internal constant FORK_BLOCK = 71_319_600;
+
     function setUp() public virtual {
-        vm.createSelectFork("xlayer");
+        vm.createSelectFork("xlayer", FORK_BLOCK);
         Config memory cfg = Config({
             admin: address(this),
             keeper: keeper,
