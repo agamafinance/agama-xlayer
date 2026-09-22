@@ -50,6 +50,7 @@ contract Deploy is Script, Deployer {
         vm.serializeAddress(c, "stabilityPool", address(d.sp));
         vm.serializeAddress(c, "factory", address(d.factory));
         vm.serializeAddress(c, "earnRouter", address(d.earn));
+        vm.serializeAddress(c, "zapRouter", address(d.zap));
         string memory contracts = vm.serializeAddress(c, "amplifyRouter", address(d.amplify));
 
         string memory a = "adapters";
@@ -75,7 +76,10 @@ contract Deploy is Script, Deployer {
         vm.serializeString(r, "adapters", adapters);
         string memory json = vm.serializeString(r, "tokens", tokens);
 
-        string memory path = string.concat("deployments/", vm.toString(block.chainid), ".json");
+        // DEPLOY_FILE lets a chain-196 fork write next to the real mainnet file.
+        string memory path = string.concat(
+            "deployments/", vm.envOr("DEPLOY_FILE", string.concat(vm.toString(block.chainid), ".json"))
+        );
         vm.writeJson(json, path);
         console.log("written", path);
     }

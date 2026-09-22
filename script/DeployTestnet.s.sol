@@ -38,7 +38,11 @@ contract DeployTestnet is Deploy {
                 wSpy: address(wSpy),
                 wAapl: address(wAapl),
                 verifierProxy: DS_VERIFIER_PROXY_TESTNET,
-                sequencerFeed: address(0)
+                sequencerFeed: address(0),
+                // The OKX DEX aggregator only covers X Layer mainnet: the zap
+                // stays deployed but with no allowlisted route on testnet.
+                okxDexRouter: address(0),
+                okxDexApprove: address(0)
             })
         });
         d = _deployAll(cfg);

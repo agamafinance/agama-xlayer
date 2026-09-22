@@ -21,6 +21,7 @@ import {AgamaAccount} from "../src/agama/AgamaAccount.sol";
 import {AgamaAccountFactory} from "../src/agama/AgamaAccountFactory.sol";
 import {AgamaEarnRouter} from "../src/agama/AgamaEarnRouter.sol";
 import {AgamaAmplifyRouter} from "../src/agama/AgamaAmplifyRouter.sol";
+import {AgamaZapRouter} from "../src/agama/AgamaZapRouter.sol";
 import {IArrowPool} from "../src/interfaces/IArrowPool.sol";
 
 /// @title Deployer
@@ -36,6 +37,10 @@ abstract contract Deployer {
     address internal constant W_AAPLX = 0x943BF64D566c32A2Bcd41AC92FB63C111cC9De8f;
     address internal constant DS_VERIFIER_PROXY = 0xcE73c8ad08CBDEaCa6078BF0627C8fe0a9a536E7;
     address internal constant SEQUENCER_UPTIME_FEED = 0x45c2b8C204568A03Dc7A2E32B71D67Fe97F908A9;
+    /// OKX Onchain OS DEX aggregator on X Layer: router called by the zap, and
+    /// the address that must be approved to pull the input token.
+    address internal constant OKX_DEX_ROUTER = 0x7c5bEE2a8091C3ef39072f64F18Fac913060AEaF;
+    address internal constant OKX_DEX_APPROVE = 0x8b773D83bc66Be128c60e07E17C8901f7a64F000;
 
     // Chainlink Data Streams v11 (US equities, Regular hours) feed IDs.
     bytes32 internal constant DS_TSLA = 0x000b2dbed1640ead18d37338b75e4755630a900649261baf4ed79d9a749be13d;
@@ -53,6 +58,8 @@ abstract contract Deployer {
         address wAapl;
         address verifierProxy;
         address sequencerFeed; // address(0) to disable
+        address okxDexRouter; // OKX DEX aggregator router (X Layer mainnet)
+        address okxDexApprove; // OKX approve address for that router
     }
 
     function _mainnetAssets() internal pure returns (Assets memory) {
@@ -63,7 +70,9 @@ abstract contract Deployer {
             wSpy: W_SPYX,
             wAapl: W_AAPLX,
             verifierProxy: DS_VERIFIER_PROXY,
-            sequencerFeed: SEQUENCER_UPTIME_FEED
+            sequencerFeed: SEQUENCER_UPTIME_FEED,
+            okxDexRouter: OKX_DEX_ROUTER,
+            okxDexApprove: OKX_DEX_APPROVE
         });
     }
 
@@ -93,6 +102,7 @@ abstract contract Deployer {
         AgamaAccountFactory factory;
         AgamaEarnRouter earn;
         AgamaAmplifyRouter amplify;
+        AgamaZapRouter zap;
     }
 
     /// @dev Must be called with `address(this)` (script: the broadcaster)
@@ -186,10 +196,18 @@ abstract contract Deployer {
             d.vaultAdapter
         );
         d.factory = new AgamaAccountFactory(address(impl), cfg.admin);
-        d.earn = new AgamaEarnRouter(d.factory, IArrowPool(address(d.pool)));
+        d.earn = new AgamaEarnRouter(d.factory, IArrowPool(address(d.pool)), cfg.admin);
         d.amplify = new AgamaAmplifyRouter(d.factory, IArrowPool(address(d.pool)), d.vaultAdapter);
         d.factory.setRouter(address(d.earn), true);
         d.factory.setRouter(address(d.amplify), true);
+
+        // 8. Buy and Earn in one transaction, through the OKX DEX aggregator.
+        d.zap = new AgamaZapRouter(d.earn, cfg.admin);
+        d.earn.setZap(address(d.zap), true);
+        if (cfg.assets.okxDexRouter != address(0)) {
+            d.zap.setTarget(cfg.assets.okxDexRouter, true);
+            d.zap.setSpender(cfg.assets.okxDexApprove, true);
+        }
     }
 
     function _stock(
