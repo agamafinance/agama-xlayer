@@ -25,6 +25,7 @@ contract AgamaEarnRouter {
 
     AgamaAccountFactory public immutable FACTORY;
     IArrowPool public immutable POOL;
+    IERC20 public immutable USDG;
 
     event Opened(address indexed user, address indexed adapter, uint256 amount, uint256 ltvBps, uint256 borrowed);
     event Closed(address indexed user, address indexed adapter);
@@ -35,6 +36,7 @@ contract AgamaEarnRouter {
     constructor(AgamaAccountFactory factory, IArrowPool pool) {
         FACTORY = factory;
         POOL = pool;
+        USDG = IERC20(pool.asset());
     }
 
     /// @param adapter Arrow xStock adapter (e.g. the wTSLAx market).
@@ -60,6 +62,31 @@ contract AgamaEarnRouter {
     function close(address adapter) external {
         AgamaAccount(FACTORY.accountOf(msg.sender)).earnClose(msg.sender, adapter);
         emit Closed(msg.sender, adapter);
+    }
+
+    /// @notice Close in one transaction even when the vault shares no longer
+    ///         cover the debt: pulls the shortfall (plus a 0.01% margin for
+    ///         interest accrued before inclusion) from the caller, capped by
+    ///         `maxTopUp`. Anything unused comes back with the leftovers.
+    function closeWithTopUp(address adapter, uint256 maxTopUp) external returns (uint256 toppedUp) {
+        address account = FACTORY.accountOf(msg.sender);
+        uint256 short = closeShortfall(msg.sender, adapter);
+        if (short > 0) {
+            toppedUp = short > maxTopUp ? maxTopUp : short;
+            USDG.safeTransferFrom(msg.sender, account, toppedUp);
+        }
+        AgamaAccount(account).earnClose(msg.sender, adapter);
+        emit Closed(msg.sender, adapter);
+    }
+
+    /// @notice USDG the owner must add for `close` to succeed now (0 if none).
+    function closeShortfall(address user, address adapter) public view returns (uint256) {
+        address account = FACTORY.accountOf(user);
+        if (account == address(0)) return 0;
+        uint256 debt = POOL.getPositionScaledDebt(adapter, account, "");
+        uint256 have = AgamaAccount(account).redeemableUsdg();
+        if (have >= debt) return 0;
+        return debt - have + debt / 10_000 + 1;
     }
 
     // ---- Views for the front ------------------------------------------------------

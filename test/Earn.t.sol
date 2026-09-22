@@ -95,6 +95,36 @@ contract EarnForkTest is BaseFork {
         assertEq(d.tsla.balanceOf(address(acct)), 10e18, "stock untouched");
     }
 
+    /// Found while building the front: right after a soft deleverage the free
+    /// shares no longer cover the debt. `close` reverts with the exact
+    /// shortfall, `closeWithTopUp` pulls it from the wallet in the same tx.
+    function test_close_afterSoftDeleverage_needsTopUp() public {
+        _openEarn(alice, 10e18, 2_500);
+        AgamaAccount acct = _account(alice);
+        _walkPrice("TSLA", 300e18, true);
+        acct.softDeleverage(address(d.tsla));
+        _warp(30 days);
+        _walkPrice("TSLA", TSLA_PX, true); // back to 420
+
+        vm.prank(alice);
+        vm.expectPartialRevert(AgamaAccount.InsufficientToRepay.selector);
+        d.earn.close(address(d.tsla));
+
+        uint256 short = d.earn.closeShortfall(alice, address(d.tsla));
+        assertGt(short, 0);
+        assertLt(short, 5e6, "a few USDG of interest");
+        _fund(alice, 10e6);
+        vm.startPrank(alice);
+        usdg.approve(address(d.earn), short);
+        d.earn.closeWithTopUp(address(d.tsla), short);
+        vm.stopPrank();
+        assertEq(wtsla.balanceOf(alice), 10e18, "stock back");
+        assertEq(d.pool.getPositionScaledDebt(address(d.tsla), address(acct), ""), 0);
+        // The unused margin comes back as vault shares (they were not redeemed).
+        uint256 back = usdg.balanceOf(alice) + d.vault.convertToAssets(d.vault.balanceOf(alice)) / 1e12;
+        assertGt(back, 10e6 - short, "unused margin returned");
+    }
+
     function test_softDeleverage_revertsWhenHealthy() public {
         _openEarn(alice, 10e18, 2_500);
         AgamaAccount acct = _account(alice);
