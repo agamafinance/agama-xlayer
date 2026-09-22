@@ -18,7 +18,7 @@ import {Deployer} from "./Deployer.sol";
 /// Env (all optional, default = broadcaster): KEEPER, GUARDIAN, TREASURY,
 /// SUPPLY_CAP_USDG, BORROW_CAP_USDG (whole USDG), SP_COOLDOWN (seconds).
 contract Deploy is Script, Deployer {
-    function run() external returns (Deployment memory d) {
+    function run() external virtual returns (Deployment memory d) {
         address admin = msg.sender;
         Config memory cfg = Config({
             admin: admin,
@@ -28,8 +28,10 @@ contract Deploy is Script, Deployer {
             supplyCapUsdg: vm.envOr("SUPPLY_CAP_USDG", uint256(5_000)) * 1e6,
             borrowCapUsdg: vm.envOr("BORROW_CAP_USDG", uint256(2_000)) * 1e6,
             spCooldown: vm.envOr("SP_COOLDOWN", uint256(1 days)),
-            useSequencerFeed: block.chainid == 196
+            assets: _mainnetAssets()
         });
+        // A local fork keeps mainnet state but runs its own clock: no sequencer check.
+        if (block.chainid != 196) cfg.assets.sequencerFeed = address(0);
 
         vm.startBroadcast();
         d = _deployAll(cfg);
@@ -58,11 +60,11 @@ contract Deploy is Script, Deployer {
         string memory adapters = vm.serializeAddress(a, "VAULT", address(d.vaultAdapter));
 
         string memory t = "tokens";
-        vm.serializeAddress(t, "USDG", USDG);
-        vm.serializeAddress(t, "wTSLAx", W_TSLAX);
-        vm.serializeAddress(t, "wNVDAx", W_NVDAX);
-        vm.serializeAddress(t, "wSPYx", W_SPYX);
-        string memory tokens = vm.serializeAddress(t, "wAAPLx", W_AAPLX);
+        vm.serializeAddress(t, "USDG", cfg.assets.usdg);
+        vm.serializeAddress(t, "wTSLAx", cfg.assets.wTsla);
+        vm.serializeAddress(t, "wNVDAx", cfg.assets.wNvda);
+        vm.serializeAddress(t, "wSPYx", cfg.assets.wSpy);
+        string memory tokens = vm.serializeAddress(t, "wAAPLx", cfg.assets.wAapl);
 
         string memory r = "root";
         vm.serializeUint(r, "chainId", block.chainid);

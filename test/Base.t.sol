@@ -39,7 +39,7 @@ abstract contract BaseFork is Test, Deployer {
             supplyCapUsdg: 1_000_000e6,
             borrowCapUsdg: 500_000e6,
             spCooldown: 1 days,
-            useSequencerFeed: true
+            assets: _mainnetAssets()
         });
         d = _deployAll(cfg);
 

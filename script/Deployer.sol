@@ -43,6 +43,30 @@ abstract contract Deployer {
     bytes32 internal constant DS_SPY = 0x000bc7e431fcd497f06b9e1dea869bcda3d05049d0601f3d1e56e64c8cdd05ac;
     bytes32 internal constant DS_AAPL = 0x000bbd87a23775b4c11092ae9a1fc7b3393636ae1dbb9f1ef460f845c0f4cff1;
 
+    /// @notice Token and infra addresses. Mainnet values by default; the
+    ///         testnet script swaps in mocks (X Layer testnet has no xStocks).
+    struct Assets {
+        address usdg;
+        address wTsla;
+        address wNvda;
+        address wSpy;
+        address wAapl;
+        address verifierProxy;
+        address sequencerFeed; // address(0) to disable
+    }
+
+    function _mainnetAssets() internal pure returns (Assets memory) {
+        return Assets({
+            usdg: USDG,
+            wTsla: W_TSLAX,
+            wNvda: W_NVDAX,
+            wSpy: W_SPYX,
+            wAapl: W_AAPLX,
+            verifierProxy: DS_VERIFIER_PROXY,
+            sequencerFeed: SEQUENCER_UPTIME_FEED
+        });
+    }
+
     struct Config {
         address admin; // governor of every contract
         address keeper; // oracle keeper + vault operator
@@ -51,7 +75,7 @@ abstract contract Deployer {
         uint256 supplyCapUsdg; // Arrow lending supply cap, in USDG units
         uint256 borrowCapUsdg; // Arrow lending borrow cap, in USDG units
         uint256 spCooldown;
-        bool useSequencerFeed;
+        Assets assets;
     }
 
     struct Deployment {
@@ -75,7 +99,7 @@ abstract contract Deployer {
     ///      acting as `cfg.admin`, since it wires roles right after deploying.
     function _deployAll(Config memory cfg) internal returns (Deployment memory d) {
         // 1. Oracle -----------------------------------------------------------------
-        d.oracle = new DataStreamsStockOracle(cfg.admin, cfg.keeper, IVerifierProxy(DS_VERIFIER_PROXY));
+        d.oracle = new DataStreamsStockOracle(cfg.admin, cfg.keeper, IVerifierProxy(cfg.assets.verifierProxy));
         d.oracle.addFeed("TSLA");
         d.oracle.addFeed("NVDA");
         d.oracle.addFeed("SPY");
@@ -84,14 +108,14 @@ abstract contract Deployer {
         d.oracle.setStream(DS_NVDA, "NVDA", 18, true);
         d.oracle.setStream(DS_SPY, "SPY", 18, true);
         d.oracle.setStream(DS_AAPL, "AAPL", 18, true);
-        if (cfg.useSequencerFeed) d.oracle.setSequencerUptimeFeed(SEQUENCER_UPTIME_FEED);
+        if (cfg.assets.sequencerFeed != address(0)) d.oracle.setSequencerUptimeFeed(cfg.assets.sequencerFeed);
 
         // 2. Agama vault on USDG ------------------------------------------------------
         d.ag = new agUSD(cfg.admin, cfg.guardian);
         d.vault = new sagUSD(address(d.ag), cfg.admin, cfg.guardian, cfg.admin, 0, cfg.treasury);
         d.queue = new agUSDQueue(
             address(d.ag),
-            USDG,
+            cfg.assets.usdg,
             address(d.vault),
             cfg.admin,
             cfg.guardian,
@@ -113,17 +137,17 @@ abstract contract Deployer {
             slope2: 0.75e27,
             optimalUtil: 0.9e27
         });
-        d.pool = new ArrowLendingPool(IERC20(USDG), cfg.admin, "Arrow USDG", "arUSDG", irm, false);
+        d.pool = new ArrowLendingPool(IERC20(cfg.assets.usdg), cfg.admin, "Arrow USDG", "arUSDG", irm, false);
         // Lender shares carry a 6-decimal offset (12 decimals): cap in shares.
         d.pool.setSupplyCap(cfg.supplyCapUsdg * 1e6);
         d.pool.setBorrowCap(cfg.borrowCapUsdg);
 
         // 4. Collateral adapters -----------------------------------------------------------
         //                 (maxLtv, LT, bonus, weekend buffer)
-        d.tsla = _stock(d, cfg, W_TSLAX, "TSLA", 3_000, 4_000, 1_000, 800);
-        d.nvda = _stock(d, cfg, W_NVDAX, "NVDA", 3_000, 4_000, 1_000, 800);
-        d.spy = _stock(d, cfg, W_SPYX, "SPY", 5_000, 6_000, 600, 500);
-        d.aapl = _stock(d, cfg, W_AAPLX, "AAPL", 3_500, 4_500, 800, 800);
+        d.tsla = _stock(d, cfg, cfg.assets.wTsla, "TSLA", 3_000, 4_000, 1_000, 800);
+        d.nvda = _stock(d, cfg, cfg.assets.wNvda, "NVDA", 3_000, 4_000, 1_000, 800);
+        d.spy = _stock(d, cfg, cfg.assets.wSpy, "SPY", 5_000, 6_000, 600, 500);
+        d.aapl = _stock(d, cfg, cfg.assets.wAapl, "AAPL", 3_500, 4_500, 800, 800);
         d.vaultAdapter = new ArrowVaultShareAdapter(
             address(d.pool),
             IERC4626(address(d.vault)),
