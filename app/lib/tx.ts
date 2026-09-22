@@ -118,6 +118,11 @@ const MESSAGES: Record<string, (args: readonly unknown[]) => string> = {
   HealthFactorTooLow: () => "This would put the health factor under the allowed limit.",
   InsufficientToRepay: (a) =>
     `The free vault shares fall ${formatUnits(n(a[0]), 6)} USDG short of the debt: close with a top-up from your wallet.`,
+  TooLittleBought: (a) =>
+    `The swap returned ${formatUnits(n(a[0]), 18)} tokens, under the ${formatUnits(n(a[1]), 18)} minimum. Retry: the route moved.`,
+  TargetNotAllowed: (a) => `The aggregator router ${String(a[0])} is not allowlisted on the zap.`,
+  SpenderNotAllowed: (a) => `The aggregator spender ${String(a[0])} is not allowlisted on the zap.`,
+  SwapFailed: () => "The aggregator swap failed, usually an expired route. Retry to get a fresh one.",
   NothingToDeleverage: () => "No free vault shares or cash left to repay with.",
   RedemptionQueued: () => "The vault's instant liquidity is short: the redemption was queued instead of paid now.",
   BorrowCapExceeded: () => "The Arrow pool borrow cap is reached.",

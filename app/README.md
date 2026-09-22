@@ -38,6 +38,29 @@ through `anvil_setStorageAt` / `anvil_setBalance` (`app/api/faucet/route.ts`, fo
 
 Production build: `pnpm build && pnpm start` (port 3021).
 
+## Buy and Earn (OKX DEX aggregator)
+
+One transaction buys the wrapped xStock through the OKX Onchain OS DEX aggregator and opens the Earn
+position (`AgamaZapRouter.buyAndEarn`); the user approves USDG to the zap, never to the aggregator.
+The tab shows only on chain 196 (mainnet or a fork that keeps chain id 196) where the zap allowlist
+and the aggregator liquidity exist; elsewhere the Deposit panel says so in one line.
+
+`app/api/zap/route.ts` signs the OKX calls server side (`OKX_API_KEY`, `OKX_SECRET_KEY`,
+`OKX_PASSPHRASE`, read from the environment or from the repo `.env`); the keys never reach the
+browser. It asks for AMM routes only (`dexIds=34,6484,53,6534,93,169`) at 1% slippage, with the zap
+as `userWalletAddress`. The panel polls a quote for the preview and fetches fresh swap calldata right
+before signing, passing `minStockOut = minReceiveAmount`.
+
+Local run against a chain-196 fork:
+
+```bash
+anvil --fork-url https://rpc.xlayer.tech --chain-id 196 --port 8546   # in the repo root
+NEXT_PUBLIC_MAINNET_RPC=http://127.0.0.1:8546 pnpm dev
+```
+
+When `deployments/196.json` is missing, the sync falls back to `deployments/196-fork.json` and a
+strip under the header says the chain 196 addresses come from a fork deploy.
+
 ## Addresses and ABIs
 
 `scripts/sync.mjs` runs before `dev` and `build`. It copies `../deployments/*.json` and the ABIs
@@ -52,7 +75,8 @@ deployed) shows "Not deployed yet".
 | --- | --- |
 | `NEXT_PUBLIC_FORK_RPC` | `http://127.0.0.1:8545` (browser reads on 1961) |
 | `FORK_RPC_URL` | `http://127.0.0.1:8545` (faucet route) |
-| `NEXT_PUBLIC_XLAYER_RPC` | `https://rpc.xlayer.tech` |
+| `NEXT_PUBLIC_MAINNET_RPC` | `https://rpc.xlayer.tech` (chain 196; point it at a local fork to try the zap) |
+| `OKX_API_KEY`, `OKX_SECRET_KEY`, `OKX_PASSPHRASE` | server only, read from the environment or the repo `.env` |
 | `NEXT_PUBLIC_XLAYER_TESTNET_RPC` | `https://testrpc.xlayer.tech/terigon` |
 | `NEXT_PUBLIC_WC_PROJECT_ID` | placeholder; only needed for the WalletConnect fallback when the OKX extension is not installed |
 

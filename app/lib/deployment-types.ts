@@ -14,6 +14,8 @@ export type Deployment = {
     factory: Address;
     earnRouter: Address;
     amplifyRouter: Address;
+    /// Buy and Earn zap (OKX DEX aggregator), absent on older deployments.
+    zapRouter?: Address;
   };
   adapters: Record<StockKey | "VAULT", Address>;
   tokens: {

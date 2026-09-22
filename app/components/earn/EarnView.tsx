@@ -2,13 +2,14 @@
 
 import clsx from "clsx";
 import {zeroAddress} from "viem";
-import {useMemo, useState} from "react";
+import {useMemo, useState, type ReactNode} from "react";
 import {useAccount, useReadContract} from "wagmi";
 
+import {BuyTicket} from "@/components/earn/BuyTicket";
 import {HFGauge} from "@/components/HFGauge";
 import {TxButton} from "@/components/TxButton";
 import {AmountField, Divider, Figure, NotDeployed, PageHead, Pill, Row, Slider} from "@/components/ui";
-import {chainName, type AppChainId} from "@/lib/chains";
+import {XLAYER_ID, chainName, type AppChainId} from "@/lib/chains";
 import {useDeployment} from "@/lib/deployment";
 import {
   BPS,
@@ -42,7 +43,12 @@ export function EarnView() {
   const m3 = useStockMarket(d, STOCKS[3], address, chainId);
   const markets = [m0, m1, m2, m3];
   const [sel, setSel] = useState(0);
+  const [mode, setMode] = useState<Mode>("deposit");
   const m = markets[sel];
+
+  // The zap is only routable where the OKX aggregator has liquidity and the
+  // zap allowlist is set: X Layer mainnet (or a local fork that keeps id 196).
+  const zap = chainId === XLAYER_ID ? d?.contracts.zapRouter : undefined;
 
   const spread = proto.vaultApy !== undefined && proto.borrowRate !== undefined ? proto.vaultApy - proto.borrowRate : undefined;
 
@@ -84,7 +90,29 @@ export function EarnView() {
       <MarketBoard markets={markets} sel={sel} onSelect={setSel} connected={!!address} />
 
       <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
-        <Ticket key={`${chainId}-${m.stock.key}`} m={m} proto={proto} router={d.contracts.earnRouter} chainId={chainId} />
+        {zap && mode === "buy" ? (
+          <BuyTicket
+            key={`buy-${chainId}-${m.stock.key}`}
+            m={m}
+            chainId={chainId}
+            router={d.contracts.earnRouter}
+            zap={zap}
+            usdg={d.tokens.USDG}
+            spread={spread}
+            marketPill={<MarketPill m={m} />}
+            tabs={<ModeTabs mode={mode} onChange={setMode} />}
+          />
+        ) : (
+          <Ticket
+            key={`${chainId}-${m.stock.key}`}
+            m={m}
+            proto={proto}
+            router={d.contracts.earnRouter}
+            chainId={chainId}
+            tabs={zap ? <ModeTabs mode={mode} onChange={setMode} /> : undefined}
+            zapNote={!zap}
+          />
+        )}
         <PositionPanel m={m} chainId={chainId} router={d.contracts.earnRouter} usdg={d.tokens.USDG} />
       </div>
     </>
@@ -190,11 +218,63 @@ function MarketBoard({
   );
 }
 
+type Mode = "deposit" | "buy";
+
+function ModeTabs({mode, onChange}: {mode: Mode; onChange: (m: Mode) => void}) {
+  return (
+    <div className="pill-bar flex rounded-full p-0.5 text-sm" role="tablist" aria-label="How to open">
+      {(
+        [
+          ["deposit", "Deposit"],
+          ["buy", "Buy and Earn"],
+        ] as const
+      ).map(([id, label]) => (
+        <button
+          key={id}
+          type="button"
+          role="tab"
+          aria-selected={mode === id}
+          onClick={() => onChange(id)}
+          className={clsx(
+            "whitespace-nowrap rounded-full px-3 py-1",
+            mode === id ? "bg-white/[0.14] text-white" : "text-mute hover:text-white",
+          )}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function MarketPill({m}: {m: StockMarket}) {
+  const st = marketState(m);
+  return (
+    <Pill tone={st.tone} title={st.title}>
+      {st.text}
+    </Pill>
+  );
+}
+
 // ---- Ticket ---------------------------------------------------------------------------------
 
 type Proto = ReturnType<typeof useProtocol>;
 
-function Ticket({m, proto, router, chainId}: {m: StockMarket; proto: Proto; router: `0x${string}`; chainId: AppChainId}) {
+function Ticket({
+  m,
+  proto,
+  router,
+  chainId,
+  tabs,
+  zapNote,
+}: {
+  m: StockMarket;
+  proto: Proto;
+  router: `0x${string}`;
+  chainId: AppChainId;
+  tabs?: ReactNode;
+  zapNote?: boolean;
+}) {
   const {address} = useAccount();
   const [amountStr, setAmountStr] = useState("");
   const maxLtvPct = m.maxLtv !== undefined ? Number(m.maxLtv) / 100 : 30;
@@ -249,14 +329,20 @@ function Ticket({m, proto, router, chainId}: {m: StockMarket; proto: Proto; rout
 
   return (
     <section className="panel p-5" aria-labelledby="ticket-title">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 id="ticket-title" className="text-md text-white">
           Deposit {m.stock.wrapper}
         </h2>
-        <Pill tone={st.tone} title={st.title}>
-          {st.text}
-        </Pill>
+        <div className="flex items-center gap-3">
+          <Pill tone={st.tone} title={st.title}>
+            {st.text}
+          </Pill>
+          {tabs}
+        </div>
       </div>
+      {zapNote && (
+        <p className="mt-1.5 text-xs text-mute">Buy and Earn needs mainnet liquidity; use the faucet on testnet.</p>
+      )}
 
       <div className="mt-4 space-y-3">
         <AmountField

@@ -5,7 +5,7 @@ import {parseAbi, type Address} from "viem";
 import {useAccount, useChainId} from "wagmi";
 
 import {OKB_TESTNET_FAUCET, TESTNET_ID, txUrl} from "@/lib/chains";
-import {getDeployment} from "@/lib/deployment";
+import {getDeployment, isForkDeployment} from "@/lib/deployment";
 import {useTx} from "@/lib/tx";
 
 const faucetAbi = parseAbi(["function faucet(address to, uint256 amount)"]);
@@ -91,6 +91,21 @@ export function TestnetFaucetButton() {
           view tx
         </a>
       )}
+    </div>
+  );
+}
+
+/// Shown when the addresses of the current chain come from a local fork
+/// deploy (`deployments/<id>-fork.json`) instead of the real deployment.
+export function ForkDeploymentStrip() {
+  const chainId = useChainId();
+  if (!isForkDeployment(chainId)) return null;
+  return (
+    <div className="border-b border-white/15 bg-white/[0.04]">
+      <div className="mx-auto w-full max-w-[1180px] px-4 py-2 text-xs text-mute md:px-6">
+        Addresses for chain {chainId} come from a local fork deploy (deployments/{chainId}-fork.json), not from a live
+        deployment.
+      </div>
     </div>
   );
 }

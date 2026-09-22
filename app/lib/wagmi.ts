@@ -3,7 +3,7 @@ import {injectedWallet, metaMaskWallet, okxWallet} from "@rainbow-me/rainbowkit/
 import {http} from "viem";
 import {createConfig} from "wagmi";
 
-import {CHAINS, FORK_ID, TESTNET_ID, XLAYER_ID} from "./chains";
+import {CHAINS, FORK_ID, MAINNET_RPC, TESTNET_ID, XLAYER_ID} from "./chains";
 
 // OKX Wallet first (X Layer is OKX's chain), then generic injected and
 // MetaMask. Installed extensions connect through their injected provider;
@@ -25,7 +25,7 @@ export const wagmiConfig = createConfig({
   connectors,
   chains: CHAINS,
   transports: {
-    [XLAYER_ID]: http(process.env.NEXT_PUBLIC_XLAYER_RPC || "https://rpc.xlayer.tech", {batch: false}),
+    [XLAYER_ID]: http(MAINNET_RPC, {batch: false}),
     [TESTNET_ID]: http(process.env.NEXT_PUBLIC_XLAYER_TESTNET_RPC || "https://testrpc.xlayer.tech/terigon", {batch: false}),
     [FORK_ID]: http(process.env.NEXT_PUBLIC_FORK_RPC || "http://127.0.0.1:8545"),
   },

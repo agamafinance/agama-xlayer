@@ -52,9 +52,10 @@ export const deployments: Partial<Record<number, Deployment>> = {
       "pool": "0x0E801D84Fa97b50751Dbf25036d067dCf18858bF",
       "queue": "0x998abeb3E57409262aE5b751f60747921B33613E",
       "sagUSD": "0x95401dc811bb5740090279Ba06cfA8fcF6113778",
-      "stabilityPool": "0x7969c5eD335650692Bc04293B07F5BF2e7A673C0"
+      "stabilityPool": "0x7969c5eD335650692Bc04293B07F5BF2e7A673C0",
+      "zapRouter": "0xD8a5a9b31c3C0232E196d518E89Fd8bF83AcAd43"
     },
-    "deployedAtBlock": 71325482,
+    "deployedAtBlock": 71332098,
     "keeper": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
     "tokens": {
       "USDG": "0x4ae46a509F6b1D9056937BA4500cb143933D2dc8",
@@ -64,4 +65,10 @@ export const deployments: Partial<Record<number, Deployment>> = {
       "wTSLAx": "0xc3FdBe3A68EE5dE461D30415a8165cf9Aefe1171"
     }
   }
+};
+
+/// Which file each deployment came from ("196-fork.json" = local fork deploy).
+export const deploymentSources: Partial<Record<number, string>> = {
+  "1952": "1952.json",
+  "1961": "1961.json"
 };

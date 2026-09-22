@@ -3,7 +3,7 @@ import type {ReactNode} from "react";
 
 import {Header} from "@/components/Header";
 import {NetworkBanner} from "@/components/NetworkBanner";
-import {TestnetStrip} from "@/components/TestnetFaucet";
+import {ForkDeploymentStrip, TestnetStrip} from "@/components/TestnetFaucet";
 
 import "./globals.css";
 import {Providers} from "./providers";
@@ -22,6 +22,7 @@ export default function RootLayout({children}: {children: ReactNode}) {
           <Header />
           <NetworkBanner />
           <TestnetStrip />
+          <ForkDeploymentStrip />
           <main className="mx-auto w-full max-w-[1180px] px-4 pb-16 pt-6 md:px-6">{children}</main>
           <footer className="mx-auto w-full max-w-[1180px] px-4 pb-10 text-xs text-dim md:px-6">
             Lending markets by Arrow Finance, deployed on X Layer by Agama as part of the Arrow x Agama

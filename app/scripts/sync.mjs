@@ -35,6 +35,7 @@ const ABIS = [
   ["sagUsdAbi", "sagUSD.sol", "sagUSD"],
   ["agUsdQueueAbi", "agUSDQueue.sol", "agUSDQueue"],
   ["debtTokenAbi", "DebtToken.sol", "DebtToken"],
+  ["zapRouterAbi", "AgamaZapRouter.sol", "AgamaZapRouter"],
 ];
 
 // ---- ABIs ---------------------------------------------------------------------
@@ -75,26 +76,39 @@ if (existsSync(outDir)) {
 // ---- Deployments -----------------------------------------------------------------
 
 if (existsSync(deploymentsDir)) {
+  // `<id>.json` wins. `<id>-fork.json` (a local fork deploy of that chain) is
+  // opt-in through INCLUDE_FORK_DEPLOYMENTS=1, so a production build never
+  // shows fork addresses to a wallet connected to the real chain.
+  const withForks = process.env.INCLUDE_FORK_DEPLOYMENTS === "1";
   const all = {};
-  for (const f of readdirSync(deploymentsDir)) {
-    const m = /^(\d+)\.json$/.exec(f);
+  const sources = {};
+  for (const f of readdirSync(deploymentsDir).sort()) {
+    const m = /^(\d+)(-fork)?\.json$/.exec(f);
     if (!m) continue;
-    const d = JSON.parse(readFileSync(join(deploymentsDir, f), "utf8"));
-    all[m[1]] = d;
+    if (m[2] && !withForks) continue;
+    const id = m[1];
+    if (m[2] && sources[id] && !sources[id].endsWith("-fork.json")) continue;
+    if (!m[2] || !all[id]) {
+      all[id] = JSON.parse(readFileSync(join(deploymentsDir, f), "utf8"));
+      sources[id] = f;
+    }
   }
   const src =
     HEADER +
     `import type {Deployment} from "../deployment-types";\n\n` +
-    `export const deployments: Partial<Record<number, Deployment>> = ${JSON.stringify(all, null, 2)};\n`;
+    `export const deployments: Partial<Record<number, Deployment>> = ${JSON.stringify(all, null, 2)};\n\n` +
+    `/// Which file each deployment came from ("196-fork.json" = local fork deploy).\n` +
+    `export const deploymentSources: Partial<Record<number, string>> = ${JSON.stringify(sources, null, 2)};\n`;
   writeFileSync(join(genDir, "deployments.ts"), src);
-  console.log(`[sync] deployments.ts: chains ${Object.keys(all).join(", ") || "(none)"}`);
+  console.log(`[sync] deployments.ts: ${Object.entries(sources).map(([k, v]) => `${k} (${v})`).join(", ") || "(none)"}`);
 } else if (existsSync(join(genDir, "deployments.ts"))) {
   console.log("[sync] ../deployments not found, keeping the committed deployments.ts");
 } else {
   writeFileSync(
     join(genDir, "deployments.ts"),
     HEADER +
-      `import type {Deployment} from "../deployment-types";\n\nexport const deployments: Partial<Record<number, Deployment>> = {};\n`,
+      `import type {Deployment} from "../deployment-types";\n\nexport const deployments: Partial<Record<number, Deployment>> = {};\n` +
+      `export const deploymentSources: Partial<Record<number, string>> = {};\n`,
   );
   console.log("[sync] no deployments found, wrote an empty deployments.ts");
 }

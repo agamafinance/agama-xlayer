@@ -6,13 +6,17 @@ export const XLAYER_ID = 196;
 export const TESTNET_ID = 1952;
 export const FORK_ID = 1961;
 
+/// Chain 196 RPC. Point it at a local mainnet fork to exercise the zap.
+export const MAINNET_RPC =
+  process.env.NEXT_PUBLIC_MAINNET_RPC || process.env.NEXT_PUBLIC_XLAYER_RPC || "https://rpc.xlayer.tech";
+
 const multicall3 = {address: "0xcA11bde05977b3631167028862bE2a173976CA11"} as const;
 
 export const xLayer = defineChain({
   id: XLAYER_ID,
   name: "X Layer",
   nativeCurrency: {name: "OKB", symbol: "OKB", decimals: 18},
-  rpcUrls: {default: {http: ["https://rpc.xlayer.tech"]}},
+  rpcUrls: {default: {http: [MAINNET_RPC]}},
   blockExplorers: {
     default: {name: "OKX Explorer", url: "https://www.okx.com/web3/explorer/xlayer"},
   },
