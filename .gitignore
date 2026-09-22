@@ -16,3 +16,5 @@ docs/
 # Local keys
 .keys/
 *.local.md
+/broadcast/*/1961/
+/deployments/1961.json
