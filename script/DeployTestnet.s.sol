@@ -65,7 +65,11 @@ contract DeployTestnet is Deploy {
 
         _write(d, cfg);
         console.log("testDexRouter", address(dex));
-        vm.writeJson(vm.toString(address(dex)), string.concat("deployments/", vm.toString(block.chainid), ".json"), ".contracts.testDexRouter");
+        vm.writeJson(
+            vm.toString(address(dex)),
+            string.concat("deployments/", vm.toString(block.chainid), ".json"),
+            ".contracts.testDexRouter"
+        );
     }
 
     function _pair(string memory name, string memory ticker) internal returns (TestXStockWrapper w) {
