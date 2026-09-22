@@ -10,9 +10,9 @@ Next.js (app router) + wagmi v2 + viem + RainbowKit. Three pages:
 
 | Chain | Id | Default | Test tokens |
 | --- | --- | --- | --- |
-| X Layer Testnet | 1952 | yes, when `deployments/1952.json` exists (public demo) | **Get test tokens** button: 5 wallet txs calling `faucet(to, amount)` on the stand-in tokens (5,000 USDG, 10 of each xStock). Gas OKB: https://web3.okx.com/xlayer/faucet |
+| X Layer Testnet | 1952 | yes, when `deployments/1952.json` exists (the demo runs here) | **Get test tokens** button: 5 wallet txs calling `faucet(to, amount)` on the stand-in tokens (5,000 USDG, 10 of each xStock). Gas OKB: https://web3.okx.com/xlayer/faucet |
 | X Layer (fork) | 1961 | when there is no testnet deployment | **Fork faucet** button (anvil cheat codes, see below) |
-| X Layer | 196 | when neither exists | real tokens; shows "Not deployed yet" until `deployments/196.json` exists |
+| X Layer | 196 | when neither exists | shows "Not deployed" while there is no `deployments/196.json` |
 
 Explorer links on 1952 and 196 point to the OKX explorer. On 1952 a strip under the header says the
 USDG and xStocks are faucet stand-ins.
@@ -40,26 +40,32 @@ Production build: `pnpm build && pnpm start` (port 3021).
 
 ## Buy and Earn (OKX DEX aggregator)
 
-One transaction buys the wrapped xStock through the OKX Onchain OS DEX aggregator and opens the Earn
-position (`AgamaZapRouter.buyAndEarn`); the user approves USDG to the zap, never to the aggregator.
-The tab shows only on chain 196 (mainnet or a fork that keeps chain id 196) where the zap allowlist
-and the aggregator liquidity exist; elsewhere the Deposit panel says so in one line.
+One transaction buys the wrapped xStock and opens the Earn position (`AgamaZapRouter.buyAndEarn`);
+the user approves USDG to the zap, never to the router that swaps. The tab shows wherever the zap
+allowlists a swap venue:
 
-`app/api/zap/route.ts` signs the OKX calls server side (`OKX_API_KEY`, `OKX_SECRET_KEY`,
+- **X Layer Testnet (1952)**: `contracts.testDexRouter`, a stand-in priced at the Agama oracle minus
+  a 0.3% spread. The calldata is built in the browser with viem (`swap(wrapper, usdgIn, priceUsdg6)`),
+  `swapTarget = swapSpender = testDexRouter`, `minStockOut = usdgIn * 1e18 / price * 0.99`.
+- **Chain 196**: the OKX Onchain OS DEX aggregator through `/api/zap`.
+
+Elsewhere the Deposit panel says so in one line.
+
+`app/api/zap/route.ts` (chain 196 path) signs the OKX calls server side (`OKX_API_KEY`, `OKX_SECRET_KEY`,
 `OKX_PASSPHRASE`, read from the environment or from the repo `.env`); the keys never reach the
 browser. It asks for AMM routes only (`dexIds=34,6484,53,6534,93,169`) at 1% slippage, with the zap
 as `userWalletAddress`. The panel polls a quote for the preview and fetches fresh swap calldata right
 before signing, passing `minStockOut = minReceiveAmount`.
 
-Local run against a chain-196 fork:
+Local run of the chain-196 path against a fork:
 
 ```bash
 anvil --fork-url https://rpc.xlayer.tech --chain-id 196 --port 8546   # in the repo root
 NEXT_PUBLIC_MAINNET_RPC=http://127.0.0.1:8546 pnpm dev
 ```
 
-When `deployments/196.json` is missing, the sync falls back to `deployments/196-fork.json` and a
-strip under the header says the chain 196 addresses come from a fork deploy.
+When `deployments/196.json` is missing, the sync falls back to `deployments/196-fork.json` if that
+file exists, and a strip under the header says the addresses come from a fork deploy.
 
 ## Addresses and ABIs
 

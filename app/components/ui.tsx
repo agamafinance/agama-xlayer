@@ -210,10 +210,10 @@ export function Divider() {
 export function NotDeployed({chainName}: {chainName: string}) {
   return (
     <div className="panel-muted px-6 py-10">
-      <h2 className="text-lg text-white">Not deployed yet on {chainName}</h2>
+      <h2 className="text-lg text-white">Not deployed on {chainName}</h2>
       <p className="mt-2 max-w-xl text-sm text-mute">
-        The Arrow x Agama contracts are not live on this network yet. Switch to X Layer Testnet from the network menu
-        to try every flow with test tokens.
+        The Arrow x Agama contracts are not live on this network. Switch to X Layer Testnet from the network menu to
+        try every flow with test tokens.
       </p>
     </div>
   );

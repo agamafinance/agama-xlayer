@@ -2,7 +2,7 @@
 
 import {useQuery} from "@tanstack/react-query";
 import {useEffect, useState, type ReactNode} from "react";
-import type {Address} from "viem";
+import {encodeFunctionData, parseAbi, type Address} from "viem";
 import {useAccount, useReadContract} from "wagmi";
 
 import {TxButton} from "@/components/TxButton";
@@ -22,6 +22,11 @@ import {
 import {earnRouterAbi, zapRouterAbi} from "@/lib/generated/abis";
 import {approve, useAllowance, useTokenBalance, type StockMarket} from "@/lib/hooks";
 import {useTx} from "@/lib/tx";
+
+const testDexAbi = parseAbi(["function swap(address wrapper, uint256 usdgIn, uint256 priceUsdg6) returns (uint256 out)"]);
+
+/// The stand-in router quotes the oracle price minus a 0.3% spread.
+const TEST_DEX_SPREAD_BPS = 30n;
 
 type ZapQuote = {toTokenAmount: string; unitPrice: string | null};
 type ZapSwap = {
@@ -53,6 +58,7 @@ export function BuyTicket({
   chainId,
   router,
   zap,
+  testDex,
   usdg,
   spread,
   tabs,
@@ -62,6 +68,9 @@ export function BuyTicket({
   chainId: AppChainId;
   router: Address;
   zap: Address;
+  /// Testnet stand-in DEX: when set, the calldata is built here instead of
+  /// asking the OKX aggregator through /api/zap.
+  testDex?: Address;
   usdg: Address;
   spread: bigint | undefined;
   tabs?: ReactNode;
@@ -91,17 +100,34 @@ export function BuyTicket({
 
   const route = useQuery({
     queryKey: ["zap-quote", chainId, m.stock.key, debouncedAmount.toString()],
-    enabled: debouncedAmount > 0n,
+    enabled: !testDex && debouncedAmount > 0n,
     staleTime: 15_000,
     refetchInterval: 30_000,
     retry: false,
     queryFn: () => zapApi<ZapQuote>({mode: "quote", stock: m.stock.key, amount: debouncedAmount.toString()}),
   });
 
-  const expected = route.data ? BigInt(route.data.toTokenAmount) : undefined;
-  // The swap itself enforces `minReceive`; before that call, preview it at the
-  // same 1% slippage the server asks for.
-  const minPreview = expected !== undefined ? (expected * 99n) / 100n : undefined;
+  // Testnet: the stand-in router prices at the Agama oracle, so the preview is
+  // exact and needs no round trip. Mainnet: the OKX aggregator quote.
+  const oraclePrice = m.wrapperPrice;
+  const priceOk = oraclePrice !== undefined && oraclePrice > 0n;
+  const stockOut = (usdgIn: bigint, bps: bigint) =>
+    priceOk ? (((usdgIn * 10n ** 18n) / oraclePrice!) * bps) / BPS : 0n;
+  const expected = testDex
+    ? debouncedAmount > 0n && priceOk
+      ? stockOut(debouncedAmount, BPS - TEST_DEX_SPREAD_BPS)
+      : undefined
+    : route.data
+      ? BigInt(route.data.toTokenAmount)
+      : undefined;
+  // The swap enforces `minStockOut`; the preview uses the same 1% tolerance.
+  const minPreview = testDex
+    ? debouncedAmount > 0n && priceOk
+      ? stockOut(debouncedAmount, 9_900n)
+      : undefined
+    : expected !== undefined
+      ? (expected * 99n) / 100n
+      : undefined;
 
   // Oracle-side numbers for the amount we expect to buy.
   const {data: onchainQuote} = useReadContract({
@@ -126,14 +152,30 @@ export function BuyTicket({
     setZapError(undefined);
     setPreparing(true);
     try {
-      // Fresh calldata: a route quoted a minute ago is already stale.
-      const swap = await zapApi<ZapSwap>({mode: "swap", stock: m.stock.key, amount: amount.toString()});
+      let target: Address;
+      let spender: Address;
+      let data: `0x${string}`;
+      let minStockOut: bigint;
+      if (testDex) {
+        if (!priceOk) throw new Error("No oracle price for this market right now.");
+        target = testDex;
+        spender = testDex; // the stand-in router pulls the USDG itself
+        data = encodeFunctionData({abi: testDexAbi, functionName: "swap", args: [m.token, amount, oraclePrice!]});
+        minStockOut = stockOut(amount, 9_900n);
+      } else {
+        // Fresh calldata: a route quoted a minute ago is already stale.
+        const swap = await zapApi<ZapSwap>({mode: "swap", stock: m.stock.key, amount: amount.toString()});
+        target = swap.router;
+        spender = swap.spender;
+        data = swap.data;
+        minStockOut = BigInt(swap.minReceive);
+      }
       setPreparing(false);
       const ok = await buyTx.send({
         address: zap,
         abi: zapRouterAbi,
         functionName: "buyAndEarn",
-        args: [amount, swap.router, swap.spender, swap.data, m.adapter, BigInt(swap.minReceive), ltvBps],
+        args: [amount, target, spender, data, m.adapter, minStockOut, ltvBps],
       });
       if (ok) {
         setAmountStr("");
@@ -145,7 +187,12 @@ export function BuyTicket({
     }
   };
 
-  const okxPrice = route.data?.unitPrice ? Number(route.data.unitPrice) : undefined;
+  const unitPrice =
+    testDex && priceOk
+      ? Number(oraclePrice) / 1e6
+      : route.data?.unitPrice
+        ? Number(route.data.unitPrice)
+        : undefined;
 
   return (
     <section className="panel p-5" aria-labelledby="buy-title">
@@ -159,8 +206,8 @@ export function BuyTicket({
         </div>
       </div>
       <p className="mt-1.5 text-xs leading-relaxed text-mute">
-        One transaction: your USDG buys the stock through the OKX DEX aggregator, the position opens on Arrow and the
-        borrowed USDG goes to the vault. You approve USDG to the Agama zap, never to the aggregator.
+        One transaction: your USDG buys the stock, the position opens on Arrow and the borrowed USDG goes to the
+        vault. You approve USDG to the Agama zap, never to the router that swaps.
       </p>
 
       <div className="mt-4 space-y-3">
@@ -172,7 +219,11 @@ export function BuyTicket({
           decimals={USDG_DECIMALS}
           symbol="USDG"
           balance={balance}
-          footer={okxPrice !== undefined ? `OKX route at $${okxPrice.toFixed(2)} per ${m.stock.wrapper}` : undefined}
+          footer={
+            unitPrice !== undefined
+              ? `${testDex ? "Stand-in router" : "OKX route"} at $${unitPrice.toFixed(2)} per ${m.stock.wrapper}`
+              : undefined
+          }
         />
         <Slider
           id="buy-ltv"
@@ -193,7 +244,7 @@ export function BuyTicket({
           label="You receive"
           strong
           value={
-            route.isFetching && expected === undefined
+            !testDex && route.isFetching && expected === undefined
               ? "Finding a route…"
               : expected !== undefined
                 ? fmt(expected, STOCK_DECIMALS, 4)
@@ -226,7 +277,7 @@ export function BuyTicket({
         />
       </div>
 
-      {route.isError && (
+      {!testDex && route.isError && (
         <p className="mt-3 text-xs text-coral" role="alert">
           {(route.error as Error).message}
         </p>
@@ -250,7 +301,9 @@ export function BuyTicket({
               ? "Market closed: set LTV to 0% to buy without borrowing."
               : m.priceUnavailable
                 ? "The Agama oracle price is stale: wait for the next push."
-                : "Route is refreshed right before signing."
+                : testDex
+              ? "Priced at the Agama oracle, 0.3% spread."
+              : "Route is refreshed right before signing."
           }
           onClick={buy}
         />
@@ -261,10 +314,19 @@ export function BuyTicket({
         </p>
       )}
       <p className="mt-3 text-2xs leading-relaxed text-dim">
-        Routed by the OKX Onchain OS DEX aggregator on AMM liquidity, slippage 1%. Unspent USDG comes back to your
-        wallet in the same transaction.
+        {testDex ? (
+          <>
+            On testnet the swap goes through a stand-in router priced at the oracle. On mainnet the same zap calls the
+            OKX DEX aggregator (see /api/zap). Unspent USDG comes back to your wallet in the same transaction.
+          </>
+        ) : (
+          <>
+            Routed by the OKX Onchain OS DEX aggregator on AMM liquidity, slippage 1%. Unspent USDG comes back to your
+            wallet in the same transaction.
+          </>
+        )}
       </p>
-      {route.data === undefined && !route.isFetching && amount > 0n && (
+      {!testDex && route.data === undefined && !route.isFetching && amount > 0n && (
         <p className="mt-2 text-2xs text-dim">
           <Pill tone="dim">Waiting for a route</Pill>
         </p>

@@ -29,7 +29,7 @@ export function NetworkBanner() {
               className="rounded-full border border-white/60 px-3 py-1 text-xs text-white hover:bg-white/10 disabled:opacity-50"
             >
               Switch to {c.name}
-              {!getDeployment(c.id) && <span className="ml-1 text-dim">(not deployed yet)</span>}
+              {!getDeployment(c.id) && <span className="ml-1 text-dim">(not deployed)</span>}
             </button>
           ))}
         </div>

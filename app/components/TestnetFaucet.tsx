@@ -118,7 +118,7 @@ export function TestnetStrip() {
     <div className="border-b border-sand/30 bg-sand/[0.07]">
       <div className="mx-auto flex w-full max-w-[1180px] flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2 text-xs md:px-6">
         <span className="text-white">
-          Testnet: USDG and xStocks are faucet stand-ins; mainnet uses real USDG and Backed xStocks.
+          Testnet: USDG and the xStocks are faucet stand-ins, not real Backed tokens.
         </span>
         <span className="text-mute">
           Gas: get test OKB from the{" "}

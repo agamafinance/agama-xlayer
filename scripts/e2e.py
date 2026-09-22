@@ -23,7 +23,8 @@ Part B (the remaining paths):
   13. Frank: Earn, soft deleverage, recovery, close with a wallet top-up (closeWithTopUp)
   14. Grace: Earn, Amplify stacked on the Earn shares, close Amplify (equity goes back to the Earn
       buffer, not the wallet), close Earn on that buffer
-  15. Dave withdraws his supply with the interest paid by the borrowers
+  15. Buy and Earn: one transaction buys the stock and opens the position
+  16. Dave withdraws his supply with the interest paid by the borrowers
 """
 
 import json
@@ -408,7 +409,30 @@ def part_b():
         send("grace", C["earnRouter"], "closeWithTopUp(address,uint256)", A["TSLA"], str(cap))
     ok(wtsla("grace") >= 10 * E18, f"Grace closed Earn on her own buffer: 10 wTSLAx back (top-up {short / E6:.4f})")
 
-    step("15. Dave withdraws with interest")
+    step("15. Buy and Earn: one transaction buys the stock and opens the position")
+    dex = C.get("testDexRouter")
+    if not dex:
+        ok(True, "skipped: no swap router on this deployment")
+    else:
+        price = num(call(A["TSLA"], "wrapperPrice()(uint256)"))
+        spend = 300 * E6
+        wtsla_before = wtsla("erin")
+        send("erin", T["USDG"], "faucet(address,uint256)", ADDR["erin"], str(spend))
+        send("erin", T["USDG"], "approve(address,uint256)", C["zapRouter"], str(spend))
+        # calldata the app would get from the OKX aggregator on mainnet; on
+        # testnet the stand-in router prices at the oracle minus 0.3%.
+        data = subprocess.check_output(
+            ["cast", "calldata", "swap(address,uint256,uint256)", T["wTSLAx"], str(spend), str(price)],
+            text=True).strip()
+        min_out = (spend * 10**18 // price) * 99 // 100
+        send("erin", C["zapRouter"], "buyAndEarn(uint256,address,address,bytes,address,uint256,uint256)",
+             str(spend), dex, dex, data, A["TSLA"], str(min_out), "2500")
+        p = earn_pos("erin")
+        ok(p["collateral"] >= min_out and p["debt"] > 0 and wtsla("erin") == wtsla_before,
+           f"bought {p['collateral'] / E18:.6f} wTSLAx with {spend / E6:.0f} USDG and opened at 25% LTV "
+           f"(debt {p['debt'] / E6:.2f}, HF {p['hf'] / RAY:.3f}), nothing left in the wallet")
+
+    step("16. Dave withdraws with interest")
     before = usdg("dave")
     send("dave", C["pool"], "redeem(uint256,address,address)", str(dave_shares), ADDR["dave"], ADDR["dave"])
     got = usdg("dave") - before

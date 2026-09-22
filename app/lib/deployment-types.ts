@@ -14,8 +14,10 @@ export type Deployment = {
     factory: Address;
     earnRouter: Address;
     amplifyRouter: Address;
-    /// Buy and Earn zap (OKX DEX aggregator), absent on older deployments.
+    /// Buy and Earn zap (OKX DEX aggregator on 196, stand-in router on testnet).
     zapRouter?: Address;
+    /// Testnet only: stand-in DEX priced at the Agama oracle, allowlisted in the zap.
+    testDexRouter?: Address;
   };
   adapters: Record<StockKey | "VAULT", Address>;
   tokens: {

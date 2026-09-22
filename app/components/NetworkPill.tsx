@@ -73,7 +73,7 @@ export function NetworkPill() {
                     <span className="ml-2 text-2xs text-dim">id {c.id}</span>
                   </span>
                   <span className={clsx("text-2xs", deployed ? "text-mint" : "text-dim")}>
-                    {deployed ? "deployed" : "not deployed yet"}
+                    {deployed ? "deployed" : "not deployed"}
                   </span>
                 </button>
               </li>

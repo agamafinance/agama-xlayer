@@ -9,7 +9,7 @@ import {BuyTicket} from "@/components/earn/BuyTicket";
 import {HFGauge} from "@/components/HFGauge";
 import {TxButton} from "@/components/TxButton";
 import {AmountField, Divider, Figure, NotDeployed, PageHead, Pill, Row, Slider} from "@/components/ui";
-import {XLAYER_ID, chainName, type AppChainId} from "@/lib/chains";
+import {TESTNET_ID, XLAYER_ID, chainName, type AppChainId} from "@/lib/chains";
 import {useDeployment} from "@/lib/deployment";
 import {
   BPS,
@@ -46,9 +46,11 @@ export function EarnView() {
   const [mode, setMode] = useState<Mode>("deposit");
   const m = markets[sel];
 
-  // The zap is only routable where the OKX aggregator has liquidity and the
-  // zap allowlist is set: X Layer mainnet (or a local fork that keeps id 196).
-  const zap = chainId === XLAYER_ID ? d?.contracts.zapRouter : undefined;
+  // Buy and Earn needs the zap plus a swap venue it allowlists: the OKX DEX
+  // aggregator on chain 196, the stand-in router on X Layer Testnet.
+  const testDex = chainId === TESTNET_ID ? d?.contracts.testDexRouter : undefined;
+  const zap =
+    (chainId === XLAYER_ID || (chainId === TESTNET_ID && testDex)) ? d?.contracts.zapRouter : undefined;
 
   const spread = proto.vaultApy !== undefined && proto.borrowRate !== undefined ? proto.vaultApy - proto.borrowRate : undefined;
 
@@ -97,6 +99,7 @@ export function EarnView() {
             chainId={chainId}
             router={d.contracts.earnRouter}
             zap={zap}
+            testDex={testDex}
             usdg={d.tokens.USDG}
             spread={spread}
             marketPill={<MarketPill m={m} />}
@@ -341,7 +344,10 @@ function Ticket({
         </div>
       </div>
       {zapNote && (
-        <p className="mt-1.5 text-xs text-mute">Buy and Earn needs mainnet liquidity; use the faucet on testnet.</p>
+        <p className="mt-1.5 text-xs text-mute">
+          Buy and Earn runs on X Layer Testnet, where a swap venue is allowlisted in the zap. Here, deposit a wrapped
+          xStock you already hold.
+        </p>
       )}
 
       <div className="mt-4 space-y-3">
