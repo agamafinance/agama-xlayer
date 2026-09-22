@@ -180,6 +180,10 @@ def tick_prices(dep):
     names = [t for t in TICKERS if t in prices]
     # Observation time = chain time (a fork's clock may lag the wall clock).
     ts = first_int(cast("block", "latest", "-f", "timestamp"))
+    stored = call(oracle, "feed(bytes32)((uint128,uint64,bool,bool))", b32(names[0]))
+    if ts <= int(stored.strip("()").split(", ")[1].split()[0]):
+        log("prices already current for this block, skipped")
+        return
     tick_arr = "[" + ",".join(b32(t) for t in names) + "]"
     px_arr = "[" + ",".join(str(prices[t]) for t in names) + "]"
     send(oracle, "pushMany(bytes32[],uint256[],uint64,bool)", tick_arr, px_arr, str(ts), "true" if is_open else "false")
