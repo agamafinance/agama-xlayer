@@ -84,7 +84,7 @@ Imported unchanged: `DebtToken`, rate and reserve libraries, `agUSD`, `sagUSD`.
 
 ```bash
 forge build
-forge test                         # 45 tests, most on a fork of X Layer mainnet (real USDG, real xStocks)
+forge test                         # 46 tests, most on a fork of X Layer mainnet (real USDG, real xStocks)
 
 # local X Layer mainnet fork with the full stack and real Chainlink prices
 anvil --fork-url https://rpc.xlayer.tech --chain-id 1961 &
@@ -99,10 +99,48 @@ The end-to-end scenario: Alice opens Earn on 10 wTSLAx at 25%, Carol at 30% with
 
 ## Deployments
 
-| Network | File |
+### X Layer testnet (chain 1952), live
+
+All 24 contracts are source-verified on the OKLink explorer. X Layer testnet has no USDG and no xStocks, so they are public-faucet stand-ins there (same decimals, same ERC-4626 wrapper shape); the Arrow x Agama contracts are the exact mainnet code and wiring.
+
+| Contract | Address |
 |---|---|
-| X Layer testnet (1952) | `deployments/1952.json` (USDG and xStocks are public-faucet stand-ins: the testnet has no RWA) |
-| X Layer mainnet (196) | `deployments/196.json` (guarded launch, small caps) |
+| ArrowLendingPool | [`0xeeC557d8108406Bc9711ACa91Da618F7c0B609F2`](https://www.okx.com/web3/explorer/xlayer-test/address/0xeeC557d8108406Bc9711ACa91Da618F7c0B609F2) |
+| ArrowStabilityPool | [`0x34bD33eD3656641F1D2a5C38C3eb0D9e3A009CEc`](https://www.okx.com/web3/explorer/xlayer-test/address/0x34bD33eD3656641F1D2a5C38C3eb0D9e3A009CEc) |
+| DataStreamsStockOracle | [`0x83621D4ec8607E0B2190Ae3B990b0391AcdB18aB`](https://www.okx.com/web3/explorer/xlayer-test/address/0x83621D4ec8607E0B2190Ae3B990b0391AcdB18aB) |
+| ArrowXStockAdapter (TSLA) | [`0xdd12dfF517d7e9E304453D2B1CBb8Da259a6194b`](https://www.okx.com/web3/explorer/xlayer-test/address/0xdd12dfF517d7e9E304453D2B1CBb8Da259a6194b) |
+| ArrowXStockAdapter (NVDA) | [`0xF438FC2680410D17D1C2720d8FD852a2287675B4`](https://www.okx.com/web3/explorer/xlayer-test/address/0xF438FC2680410D17D1C2720d8FD852a2287675B4) |
+| ArrowXStockAdapter (SPY) | [`0xfE7E44c64a3F2A5097198b413DA70368be203116`](https://www.okx.com/web3/explorer/xlayer-test/address/0xfE7E44c64a3F2A5097198b413DA70368be203116) |
+| ArrowXStockAdapter (AAPL) | [`0x6Efa945e2B5689F4B235f3A23BBaA0345f852BE7`](https://www.okx.com/web3/explorer/xlayer-test/address/0x6Efa945e2B5689F4B235f3A23BBaA0345f852BE7) |
+| ArrowVaultShareAdapter | [`0x072944f6E671220aE73E89E61659E356437B16a5`](https://www.okx.com/web3/explorer/xlayer-test/address/0x072944f6E671220aE73E89E61659E356437B16a5) |
+| AgamaEarnRouter | [`0x3Cd1C5e687aE76eb80264FFCCd1CD7369B44190d`](https://www.okx.com/web3/explorer/xlayer-test/address/0x3Cd1C5e687aE76eb80264FFCCd1CD7369B44190d) |
+| AgamaAmplifyRouter | [`0x64691CFe29B3f1cB02dC26517da6281C7A9a7bf7`](https://www.okx.com/web3/explorer/xlayer-test/address/0x64691CFe29B3f1cB02dC26517da6281C7A9a7bf7) |
+| AgamaAccountFactory | [`0xec7EA4df98cc6B861E39055765d9EAaa872c8291`](https://www.okx.com/web3/explorer/xlayer-test/address/0xec7EA4df98cc6B861E39055765d9EAaa872c8291) |
+| agUSDQueue (Agama vault) | [`0xEAd648B0399e283690F10b8ABB765b337e158592`](https://www.okx.com/web3/explorer/xlayer-test/address/0xEAd648B0399e283690F10b8ABB765b337e158592) |
+| sagUSD (Agama vault share) | [`0x865ACC9E2034B54d720729B4F890507dF23efF11`](https://www.okx.com/web3/explorer/xlayer-test/address/0x865ACC9E2034B54d720729B4F890507dF23efF11) |
+| tUSDG (testnet stand-in) | [`0x06AA0672F88CCB05F7B8d0290C45D03b91f5F31c`](https://www.okx.com/web3/explorer/xlayer-test/address/0x06AA0672F88CCB05F7B8d0290C45D03b91f5F31c) |
+| wTSLAx (testnet stand-in) | [`0x9B43fA0d47aF23D49F3603979d849D96EF93eE3C`](https://www.okx.com/web3/explorer/xlayer-test/address/0x9B43fA0d47aF23D49F3603979d849D96EF93eE3C) |
+
+Full list: [`deployments/1952.json`](deployments/1952.json).
+
+The end-to-end scenario below ran against this deployment with real transactions (`python3 scripts/e2e.py testnet`):
+
+```
+2. Alice: Earn on 10 wTSLAx at 25% LTV     borrowed 939.56 USDG, HF 1.600, 939.56 USDG parked in the vault
+3. Carol: Earn at 30% LTV, no buffer       debt 1127.47 USDG
+4. Bob: Amplify 1,000 USDG at 3x           exposure 3000.00, debt 2000.00, HF 1.164
+5. vault yield settled                     Bob's exposure 3000.00 -> 3013.50 USDG
+6. TSLA 375.82 -> 268.71                   Alice HF 1.144, Carol HF 0.953
+7. keeper                                  Alice soft-deleveraged to HF 1.400, keeps all 10 wTSLAx
+                                           Carol liquidated partially: SP seized 4.615, Carol keeps 5.385
+8. buyer                                   4.615 wTSLAx bought at a 3% discount
+9. exits                                   Bob 1013.50 USDG back for 1,000 in, Alice 10 wTSLAx back
+E2E PASSED
+```
+
+### X Layer mainnet (chain 196)
+
+`script/Deploy.s.sol` targets the real USDG and Backed wrappers, with small caps (5,000 USDG supply, 2,000 USDG borrow). The 46 Foundry tests and the same end-to-end scenario run on a fork of X Layer mainnet (`./scripts/fork-reset.sh && python3 scripts/e2e.py fork`).
 
 ## Oracle: how prices reach X Layer
 
