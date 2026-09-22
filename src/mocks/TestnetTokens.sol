@@ -50,3 +50,37 @@ contract TestXStockWrapper is ERC4626 {
         _mint(to, shares);
     }
 }
+
+/// @notice TESTNET ONLY. Stands in for the OKX DEX aggregator, which covers
+///         X Layer mainnet but not the testnet: swaps tUSDG for a test xStock
+///         at the Arrow oracle price (minus a small spread), minting the stock
+///         from its faucet. Same interface shape as an aggregator call, so the
+///         zap is exercised on testnet exactly as it is on mainnet.
+contract TestDexRouter {
+    uint256 internal constant BPS = 10_000;
+
+    TestUSDG public immutable USDG;
+    uint256 public spreadBps;
+
+    event Swapped(address indexed buyer, address indexed wrapper, uint256 usdgIn, uint256 stockOut);
+
+    constructor(TestUSDG usdg, uint256 spreadBps_) {
+        USDG = usdg;
+        spreadBps = spreadBps_;
+    }
+
+    /// @param wrapper     Test xStock wrapper to buy.
+    /// @param usdgIn      tUSDG pulled from the caller (it approved this router).
+    /// @param priceUsdg6  Price of one wrapper token, in tUSDG units (6 decimals).
+    function swap(TestXStockWrapper wrapper, uint256 usdgIn, uint256 priceUsdg6)
+        external
+        returns (uint256 out)
+    {
+        require(priceUsdg6 > 0, "price");
+        USDG.transferFrom(msg.sender, address(this), usdgIn);
+        out = (usdgIn * 1e18) / priceUsdg6;
+        out = (out * (BPS - spreadBps)) / BPS;
+        wrapper.faucet(msg.sender, out);
+        emit Swapped(msg.sender, address(wrapper), usdgIn, out);
+    }
+}

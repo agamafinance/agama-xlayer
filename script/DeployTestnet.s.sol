@@ -3,7 +3,7 @@ pragma solidity 0.8.26;
 
 import {Script, console} from "forge-std/Script.sol";
 import {Deploy} from "./Deploy.s.sol";
-import {TestUSDG, TestXStock, TestXStockWrapper} from "../src/mocks/TestnetTokens.sol";
+import {TestUSDG, TestXStock, TestXStockWrapper, TestDexRouter} from "../src/mocks/TestnetTokens.sol";
 
 /// @notice X Layer testnet (1952). Same Arrow x Agama stack, with public-faucet
 ///         stand-ins for USDG and the wrapped xStocks, and the testnet
@@ -47,6 +47,12 @@ contract DeployTestnet is Deploy {
         });
         d = _deployAll(cfg);
 
+        // The OKX aggregator covers mainnet only: on testnet the zap calls a
+        // stand-in router that prices at the oracle, so Buy and Earn works here too.
+        TestDexRouter dex = new TestDexRouter(usdg, 30);
+        d.zap.setTarget(address(dex), true);
+        d.zap.setSpender(address(dex), true);
+
         // Seed: Arrow lenders and the stability pool.
         usdg.faucet(admin, 10_000e6);
         usdg.faucet(admin, 10_000e6);
@@ -58,6 +64,8 @@ contract DeployTestnet is Deploy {
         vm.stopBroadcast();
 
         _write(d, cfg);
+        console.log("testDexRouter", address(dex));
+        vm.writeJson(vm.toString(address(dex)), string.concat("deployments/", vm.toString(block.chainid), ".json"), ".contracts.testDexRouter");
     }
 
     function _pair(string memory name, string memory ticker) internal returns (TestXStockWrapper w) {
