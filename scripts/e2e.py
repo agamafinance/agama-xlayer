@@ -79,11 +79,19 @@ K = keys()
 ADDR = {n: subprocess.check_output(["cast", "wallet", "address", k], text=True).strip() for n, k in K.items()}
 
 
+TRANSIENT = ("error sending request", "timed out", "connection reset", "502", "503", "504", "EOF")
+
+
 def cast(*args):
-    r = subprocess.run(["cast", *args, "--rpc-url", RPC], capture_output=True, text=True)
-    if r.returncode != 0:
+    # Retry transient transport errors of the public RPC (not reverts).
+    for attempt in range(5):
+        r = subprocess.run(["cast", *args, "--rpc-url", RPC], capture_output=True, text=True)
+        if r.returncode == 0:
+            return r.stdout.strip()
+        if attempt < 4 and any(t in r.stderr for t in TRANSIENT):
+            time.sleep(2 + 2 * attempt)
+            continue
         raise RuntimeError(f"cast {args[0]} {args[1] if len(args) > 1 else ''}: {r.stderr.strip()[-400:]}")
-    return r.stdout.strip()
 
 
 LAST_BLOCK = [0]  # block of our last mined tx: reads never go below it

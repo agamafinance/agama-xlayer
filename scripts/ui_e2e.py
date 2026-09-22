@@ -5,7 +5,7 @@
 
 A headless Chromium opens the app with an injected EIP-1193 wallet. Reads go to
 the testnet RPC; `eth_sendTransaction` is signed and broadcast by `cast` with a
-dedicated test key (.keys/e2e.json, "ui"), so every click is a real testnet
+fresh throwaway key funded by the deployer, so every click is a real testnet
 transaction. Screenshots land in ../agama-xlayer-local/ui-e2e/.
 
 Flow: page loads with live prices -> connect -> faucet -> Earn open -> Amplify
@@ -15,6 +15,7 @@ Fails on any page error or any transaction error shown by the app.
 
 import asyncio
 import json
+import re
 import os
 import subprocess
 import sys
@@ -47,7 +48,10 @@ def admin_key():
     return (d[0] if isinstance(d, list) else d)["private_key"]
 
 
-UI_KEY = key("ui")
+# A fresh throwaway wallet per run: the flow is always the first-time user path.
+UI_KEY = (lambda w: (w[0] if isinstance(w, list) else w)["private_key"])(
+    json.loads(subprocess.check_output(["cast", "wallet", "new", "--json"]))
+)
 ACCOUNT = subprocess.check_output(["cast", "wallet", "address", UI_KEY], text=True).strip()
 PAGE_ERRORS = []
 
@@ -133,10 +137,22 @@ async def shot(page, name):
     await page.screenshot(path=os.path.join(OUT, f"{name}.png"), full_page=True)
 
 
+async def wait_text(page, selector, pred, timeout=45):
+    """The app polls a load-balanced RPC: wait for the state instead of sleeping."""
+    t0 = time.time()
+    while time.time() - t0 < timeout:
+        if pred(await page.locator(selector).inner_text()):
+            return True
+        await page.wait_for_timeout(1000)
+    return False
+
+
 async def click_tx(page, name, scope=None, timeout=120):
     """Click a transaction button and wait for the app to report Done or an error."""
     root = page.locator(scope) if scope else page
-    btn = root.get_by_role("button", name=name).first
+    # Testnet stand-ins carry on-chain symbols (tUSDG): match "USDG" and "tUSDG".
+    pattern = re.compile(re.escape(name).replace("USDG", "t?USDG"))
+    btn = root.get_by_role("button", name=pattern).first
     await btn.wait_for(state="visible", timeout=30000)
     for _ in range(120):
         if await btn.is_enabled():
@@ -212,9 +228,8 @@ async def main():
         await shot(page, "02-earn-ticket")
         await click_tx(page, "Approve wTSLAx")
         await click_tx(page, "Open position")
-        await page.wait_for_timeout(4000)
-        pos = await page.locator("section[aria-labelledby=pos-title]").inner_text()
-        ok("No wTSLAx position yet" not in pos, "Earn position shown (collateral, debt, health factor)")
+        shown = await wait_text(page, "section[aria-labelledby=pos-title]", lambda t: "No wTSLAx position yet" not in t)
+        ok(shown, "Earn position shown (collateral, debt, health factor)")
         await shot(page, "03-earn-position")
 
         step("5. Amplify: 300 USDG at the default leverage")
@@ -257,6 +272,9 @@ async def main():
         await page.fill("#lend-amount", "100")
         await click_tx(page, "Approve USDG", scope="section[aria-labelledby=supply-title]")
         await click_tx(page, "Supply USDG")
+        supplied = await wait_text(page, "section[aria-labelledby=supply-title]",
+                                   lambda t: re.search(r"Your supply\s*\$(9\d|1\d\d)\.", t) is not None)
+        ok(supplied, "supply shown (~100 USDG)")
         await page.get_by_role("tab", name="withdraw").click()
         await page.wait_for_timeout(1000)
         await page.locator("section[aria-labelledby=supply-title]").get_by_role("button", name="Max").click()

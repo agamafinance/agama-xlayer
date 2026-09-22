@@ -80,11 +80,19 @@ def log(*a):
     print(datetime.now(timezone.utc).strftime("%H:%M:%S"), *a, flush=True)
 
 
+TRANSIENT = ("error sending request", "timed out", "connection reset", "502", "503", "504", "EOF")
+
+
 def cast(*args, rpc=RPC):
-    out = subprocess.run(["cast", *args, "--rpc-url", rpc], capture_output=True, text=True)
-    if out.returncode != 0:
+    # Retry transient transport errors of public RPCs (not reverts).
+    for attempt in range(5):
+        out = subprocess.run(["cast", *args, "--rpc-url", rpc], capture_output=True, text=True)
+        if out.returncode == 0:
+            return out.stdout.strip()
+        if attempt < 4 and any(t in out.stderr for t in TRANSIENT):
+            time.sleep(2 + 2 * attempt)
+            continue
         raise RuntimeError(out.stderr.strip().splitlines()[-1] if out.stderr else "cast failed")
-    return out.stdout.strip()
 
 
 def call(to, sig, *args, rpc=RPC):
