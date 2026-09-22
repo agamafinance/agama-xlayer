@@ -1,0 +1,130 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  background: #254839;
+  color: #ffffff;
+}
+
+body {
+  font-family: "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+  background: rgba(159, 217, 184, 0.35);
+}
+
+:focus-visible {
+  outline: 2px solid #9fd9b8;
+  outline-offset: 2px;
+}
+
+/* Primary container: white 1.5px hairline, the "ticket" look. */
+.panel {
+  background: #2e4a3c;
+  border: 1.5px solid rgba(255, 255, 255, 0.92);
+  border-radius: 18px;
+}
+
+/* Secondary container: muted border, lower in the hierarchy. */
+.panel-muted {
+  background: #2e4a3c;
+  border: 1.5px solid #6e8c7d;
+  border-radius: 18px;
+}
+
+.box {
+  background: #37574a;
+  border: 1px solid rgba(110, 140, 125, 0.7);
+  border-radius: 12px;
+  transition: border-color 0.15s ease;
+}
+.box:focus-within {
+  border-color: #9fd9b8;
+}
+.box input:not([type="range"]):focus-visible {
+  outline: none;
+}
+
+.pill-bar {
+  background: rgba(20, 39, 31, 0.55);
+}
+
+/* Range slider ----------------------------------------------------------- */
+input[type="range"].slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 22px;
+  background: transparent;
+  cursor: pointer;
+}
+input[type="range"].slider:focus-visible {
+  outline: none;
+}
+input[type="range"].slider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    #9fd9b8 0%,
+    #9fd9b8 var(--fill, 0%),
+    rgba(255, 255, 255, 0.18) var(--fill, 0%),
+    rgba(255, 255, 255, 0.18) 100%
+  );
+}
+input[type="range"].slider::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+}
+input[type="range"].slider::-moz-range-progress {
+  height: 4px;
+  border-radius: 999px;
+  background: #9fd9b8;
+}
+input[type="range"].slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  margin-top: -7px;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: #ffffff;
+  border: 4px solid #9fd9b8;
+  box-shadow: 0 0 0 4px rgba(37, 72, 57, 0.9);
+}
+input[type="range"].slider::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: #ffffff;
+  border: 4px solid #9fd9b8;
+}
+input[type="range"].slider:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px #254839, 0 0 0 5px #9fd9b8;
+}
+
+/* Number inputs without spinners */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
