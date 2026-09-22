@@ -5,10 +5,10 @@ interface IagUSDQueue {
     // ---- Structs -----------------------------------------------------------
 
     struct RedemptionRequest {
-        address requester;   // address that locked agUSD: only they can cancel
-        address recipient;   // address that receives USDC on fulfillment
+        address requester; // address that locked agUSD: only they can cancel
+        address recipient; // address that receives USDC on fulfillment
         uint256 agUSDLocked; // agUSD held by this contract for this request
-        uint256 usdcOwed;    // USDC to be returned (= agUSDLocked / SCALAR)
+        uint256 usdcOwed; // USDC to be returned (= agUSDLocked / SCALAR)
         uint256 timestamp;
         bool processed;
         bool cancelled;
@@ -17,7 +17,13 @@ interface IagUSDQueue {
     // ---- Events ------------------------------------------------------------
 
     event Deposited(address indexed sender, address indexed recipient, uint256 usdcIn, uint256 agUSDOut);
-    event RedemptionRequested(uint256 indexed requestId, address indexed requester, address indexed recipient, uint256 agUSDLocked, uint256 usdcOwed);
+    event RedemptionRequested(
+        uint256 indexed requestId,
+        address indexed requester,
+        address indexed recipient,
+        uint256 agUSDLocked,
+        uint256 usdcOwed
+    );
     event RedemptionProcessed(uint256 indexed requestId, address indexed recipient, uint256 usdcOut);
     event RedemptionCancelled(uint256 indexed requestId, address indexed requester);
     event PrimaryVaultUpdated(address indexed oldVault, address indexed newVault);

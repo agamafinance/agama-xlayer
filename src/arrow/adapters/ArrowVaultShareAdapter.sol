@@ -89,7 +89,9 @@ contract ArrowVaultShareAdapter is IArrowAdapter, Ownable {
         uint256 maxGrowthBpsPerYear,
         uint256 maxDropBps
     ) Ownable(admin) {
-        if (maxLtvBps == 0 || maxLtvBps >= liquidationThresholdBps) revert InvalidRiskParams();
+        if (maxLtvBps == 0 || maxLtvBps >= liquidationThresholdBps) {
+            revert InvalidRiskParams();
+        }
         if (liquidationThresholdBps > BPS || liquidationBonusBps > 2_000) revert InvalidRiskParams();
         if (haircutBps > 2_000 || maxDropBps == 0 || maxDropBps > BPS) revert InvalidRiskParams();
         uint8 assetDecimals = IERC20Metadata(share.asset()).decimals();

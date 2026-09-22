@@ -27,7 +27,9 @@ contract AgamaEarnRouter {
     IArrowPool public immutable POOL;
     IERC20 public immutable USDG;
 
-    event Opened(address indexed user, address indexed adapter, uint256 amount, uint256 ltvBps, uint256 borrowed);
+    event Opened(
+        address indexed user, address indexed adapter, uint256 amount, uint256 ltvBps, uint256 borrowed
+    );
     event Closed(address indexed user, address indexed adapter);
 
     error LtvTooHigh(uint256 ltvBps, uint256 maxLtvBps);

@@ -81,12 +81,7 @@ contract AgamaAccount is ReentrancyGuard {
     error SpreadPositive(uint256 borrowRateRay, uint256 vaultApyRay);
     error InsufficientToRepay(uint256 shortfall);
 
-    constructor(
-        IArrowPool pool,
-        IagUSDQueue queue,
-        IERC4626 vault,
-        ArrowVaultShareAdapter vaultAdapter
-    ) {
+    constructor(IArrowPool pool, IagUSDQueue queue, IERC4626 vault, ArrowVaultShareAdapter vaultAdapter) {
         POOL = pool;
         USDG = IERC20(pool.asset());
         QUEUE = queue;
@@ -105,7 +100,9 @@ contract AgamaAccount is ReentrancyGuard {
 
     modifier auth(address user) {
         if (user != owner) revert NotAuthorized();
-        if (msg.sender != owner && !IAgamaAccountFactory(factory).isRouter(msg.sender)) revert NotAuthorized();
+        if (msg.sender != owner && !IAgamaAccountFactory(factory).isRouter(msg.sender)) {
+            revert NotAuthorized();
+        }
         _;
     }
 

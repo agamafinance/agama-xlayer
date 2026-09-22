@@ -34,10 +34,10 @@ contract sagUSD is IsagUSD, ERC4626, AccessControl, Pausable, ReentrancyGuard {
     bytes32 public constant GOVERNOR_ROLE = keccak256("GOVERNOR_ROLE");
     bytes32 public constant GUARDIAN_ROLE = keccak256("GUARDIAN_ROLE");
     /// @notice Held by agUSDQueue: the only address authorised to syncYield.
-    bytes32 public constant OPERATOR_ROLE  = keccak256("OPERATOR_ROLE");
+    bytes32 public constant OPERATOR_ROLE = keccak256("OPERATOR_ROLE");
 
     uint256 public constant MAX_FEE_BPS = 2_000; // 20 %
-    uint256 public constant BPS_DENOM   = 10_000;
+    uint256 public constant BPS_DENOM = 10_000;
 
     uint256 public protocolFeeBps;
     address public feeRecipient;
@@ -50,12 +50,12 @@ contract sagUSD is IsagUSD, ERC4626, AccessControl, Pausable, ReentrancyGuard {
         uint256 initialFeeBps,
         address initialFeeRecipient
     ) ERC4626(IERC20(agUSD_)) ERC20("Staked Agama USD", "sagUSD") {
-        if (agUSD_                == address(0)) revert ZeroAddress();
-        if (governor              == address(0)) revert ZeroAddress();
-        if (guardian              == address(0)) revert ZeroAddress();
-        if (operator              == address(0)) revert ZeroAddress();
-        if (initialFeeRecipient   == address(0)) revert ZeroAddress();
-        if (initialFeeBps > MAX_FEE_BPS)         revert FeeTooHigh();
+        if (agUSD_ == address(0)) revert ZeroAddress();
+        if (governor == address(0)) revert ZeroAddress();
+        if (guardian == address(0)) revert ZeroAddress();
+        if (operator == address(0)) revert ZeroAddress();
+        if (initialFeeRecipient == address(0)) revert ZeroAddress();
+        if (initialFeeBps > MAX_FEE_BPS) revert FeeTooHigh();
 
         _grantRole(DEFAULT_ADMIN_ROLE, governor);
         _grantRole(GOVERNOR_ROLE, governor);
@@ -63,7 +63,7 @@ contract sagUSD is IsagUSD, ERC4626, AccessControl, Pausable, ReentrancyGuard {
         _grantRole(OPERATOR_ROLE, operator);
 
         protocolFeeBps = initialFeeBps;
-        feeRecipient   = initialFeeRecipient;
+        feeRecipient = initialFeeRecipient;
     }
 
     // ---- ERC4626 overrides ------------------------------------------------
@@ -76,11 +76,23 @@ contract sagUSD is IsagUSD, ERC4626, AccessControl, Pausable, ReentrancyGuard {
     }
 
     /// @dev Block user-facing vault operations while paused.
-    function deposit(uint256 assets, address receiver) public override nonReentrant whenNotPaused returns (uint256) {
+    function deposit(uint256 assets, address receiver)
+        public
+        override
+        nonReentrant
+        whenNotPaused
+        returns (uint256)
+    {
         return super.deposit(assets, receiver);
     }
 
-    function mint(uint256 shares, address receiver) public override nonReentrant whenNotPaused returns (uint256) {
+    function mint(uint256 shares, address receiver)
+        public
+        override
+        nonReentrant
+        whenNotPaused
+        returns (uint256)
+    {
         return super.mint(shares, receiver);
     }
 
@@ -142,7 +154,7 @@ contract sagUSD is IsagUSD, ERC4626, AccessControl, Pausable, ReentrancyGuard {
     function syncYield(uint256 agUSDAmount) external onlyRole(OPERATOR_ROLE) {
         if (agUSDAmount == 0) revert ZeroAmount();
         uint256 currentBalance = IERC20(asset()).balanceOf(address(this));
-        uint256 prevAssets     = currentBalance - agUSDAmount; // reverts on underflow if not pre-transferred
+        uint256 prevAssets = currentBalance - agUSDAmount; // reverts on underflow if not pre-transferred
 
         uint256 feeBps = protocolFeeBps;
         uint256 feeShares;
@@ -153,7 +165,7 @@ contract sagUSD is IsagUSD, ERC4626, AccessControl, Pausable, ReentrancyGuard {
                 // Split into mulDiv to prevent intermediate overflow:
                 //   numerator   = feeBps * Y  (max: 2000 * 1e45 ≈ 2e48, safe)
                 //   denominator = BPS_DENOM * A + (BPS_DENOM - feeBps) * Y
-                uint256 num   = feeBps * agUSDAmount;
+                uint256 num = feeBps * agUSDAmount;
                 uint256 denom = BPS_DENOM * prevAssets + (BPS_DENOM - feeBps) * agUSDAmount;
                 feeShares = Math.mulDiv(num, S, denom); // floor → conservative for fee recipient
             }

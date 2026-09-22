@@ -108,7 +108,9 @@ abstract contract Deployer {
         d.oracle.setStream(DS_NVDA, "NVDA", 18, true);
         d.oracle.setStream(DS_SPY, "SPY", 18, true);
         d.oracle.setStream(DS_AAPL, "AAPL", 18, true);
-        if (cfg.assets.sequencerFeed != address(0)) d.oracle.setSequencerUptimeFeed(cfg.assets.sequencerFeed);
+        if (cfg.assets.sequencerFeed != address(0)) {
+            d.oracle.setSequencerUptimeFeed(cfg.assets.sequencerFeed);
+        }
 
         // 2. Agama vault on USDG ------------------------------------------------------
         d.ag = new agUSD(cfg.admin, cfg.guardian);
@@ -178,7 +180,10 @@ abstract contract Deployer {
 
         // 7. Agama accounts and routers ---------------------------------------------------
         AgamaAccount impl = new AgamaAccount(
-            IArrowPool(address(d.pool)), IagUSDQueue(address(d.queue)), IERC4626(address(d.vault)), d.vaultAdapter
+            IArrowPool(address(d.pool)),
+            IagUSDQueue(address(d.queue)),
+            IERC4626(address(d.vault)),
+            d.vaultAdapter
         );
         d.factory = new AgamaAccountFactory(address(impl), cfg.admin);
         d.earn = new AgamaEarnRouter(d.factory, IArrowPool(address(d.pool)));

@@ -78,7 +78,9 @@ contract ArrowXStockAdapter is IArrowAdapter, Ownable {
         uint256 liquidationBonusBps,
         uint256 weekendBufferBps
     ) Ownable(admin) {
-        if (maxLtvBps == 0 || maxLtvBps >= liquidationThresholdBps) revert InvalidRiskParams();
+        if (maxLtvBps == 0 || maxLtvBps >= liquidationThresholdBps) {
+            revert InvalidRiskParams();
+        }
         if (liquidationThresholdBps > BPS || liquidationBonusBps > 3_000) revert InvalidRiskParams();
         // The closed-market threshold must still sit above the max LTV,
         // otherwise a position opened at max LTV on Friday would be

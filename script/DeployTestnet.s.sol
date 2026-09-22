@@ -58,6 +58,8 @@ contract DeployTestnet is Deploy {
 
     function _pair(string memory name, string memory ticker) internal returns (TestXStockWrapper w) {
         TestXStock base = new TestXStock(string.concat("Test ", name, " xStock"), string.concat(ticker, "x"));
-        w = new TestXStockWrapper(base, string.concat("Wrapped Test ", name, " xStock"), string.concat("w", ticker, "x"));
+        w = new TestXStockWrapper(
+            base, string.concat("Wrapped Test ", name, " xStock"), string.concat("w", ticker, "x")
+        );
     }
 }

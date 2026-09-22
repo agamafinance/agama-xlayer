@@ -57,18 +57,18 @@ contract agUSDQueue is IagUSDQueue, AccessControl, Pausable, ReentrancyGuard {
     // ---- Constants ---------------------------------------------------------
 
     /// @notice Decimal multiplier: 10^(18-6) = 10^12.
-    uint256 public constant SCALAR    = 1e12;
+    uint256 public constant SCALAR = 1e12;
     uint256 public constant BPS_DENOM = 10_000;
 
     uint256 public constant MAX_RESERVE_RATIO_BPS = 5_000; // 50 %
-    uint256 public constant MAX_FEE_BPS           = 3_000; // 30 %
+    uint256 public constant MAX_FEE_BPS = 3_000; // 30 %
 
     // ---- Immutables --------------------------------------------------------
 
     /// @notice The agUSD ERC-20 token (this contract holds MINTER_ROLE on it).
-    IagUSD  public immutable agUSD;
+    IagUSD public immutable agUSD;
     /// @notice USDC ERC-20 (6 decimals).
-    IERC20  public immutable usdc;
+    IERC20 public immutable usdc;
     /// @notice sagUSD vault: receives minted agUSD on yield settlements.
     IsagUSD public immutable sagUSD;
 
@@ -146,18 +146,18 @@ contract agUSDQueue is IagUSDQueue, AccessControl, Pausable, ReentrancyGuard {
         uint256 initialMinDeposit,
         uint256 initialMaxInstantRedemption
     ) {
-        if (agUSD_               == address(0)) revert ZeroAddress();
-        if (usdc_                == address(0)) revert ZeroAddress();
-        if (sagUSD_              == address(0)) revert ZeroAddress();
-        if (governor             == address(0)) revert ZeroAddress();
-        if (guardian             == address(0)) revert ZeroAddress();
-        if (operator             == address(0)) revert ZeroAddress();
-        if (initialFeeRecipient  == address(0)) revert ZeroAddress();
+        if (agUSD_ == address(0)) revert ZeroAddress();
+        if (usdc_ == address(0)) revert ZeroAddress();
+        if (sagUSD_ == address(0)) revert ZeroAddress();
+        if (governor == address(0)) revert ZeroAddress();
+        if (guardian == address(0)) revert ZeroAddress();
+        if (operator == address(0)) revert ZeroAddress();
+        if (initialFeeRecipient == address(0)) revert ZeroAddress();
         if (initialReserveRatioBps > MAX_RESERVE_RATIO_BPS) revert ReserveRatioTooHigh();
-        if (initialFeeBps          > MAX_FEE_BPS)           revert FeeTooHigh();
+        if (initialFeeBps > MAX_FEE_BPS) revert FeeTooHigh();
 
-        agUSD  = IagUSD(agUSD_);
-        usdc   = IERC20(usdc_);
+        agUSD = IagUSD(agUSD_);
+        usdc = IERC20(usdc_);
         sagUSD = IsagUSD(sagUSD_);
 
         _grantRole(DEFAULT_ADMIN_ROLE, governor);
@@ -165,10 +165,10 @@ contract agUSDQueue is IagUSDQueue, AccessControl, Pausable, ReentrancyGuard {
         _grantRole(GUARDIAN_ROLE, guardian);
         _grantRole(OPERATOR_ROLE, operator);
 
-        reserveRatioBps      = initialReserveRatioBps;
-        protocolFeeBps       = initialFeeBps;
-        feeRecipient         = initialFeeRecipient;
-        minDeposit           = initialMinDeposit;
+        reserveRatioBps = initialReserveRatioBps;
+        protocolFeeBps = initialFeeBps;
+        feeRecipient = initialFeeRecipient;
+        minDeposit = initialMinDeposit;
         maxInstantRedemption = initialMaxInstantRedemption;
     }
 
@@ -216,7 +216,7 @@ contract agUSDQueue is IagUSDQueue, AccessControl, Pausable, ReentrancyGuard {
         whenNotPaused
         returns (uint256 requestId)
     {
-        if (agUSDAmount == 0)        revert ZeroAmount();
+        if (agUSDAmount == 0) revert ZeroAmount();
         if (recipient == address(0)) revert ZeroAddress();
 
         // Transfer agUSD from caller to this contract (held until processed/cancelled).
@@ -238,13 +238,13 @@ contract agUSDQueue is IagUSDQueue, AccessControl, Pausable, ReentrancyGuard {
         // Queue the request.
         requestId = nextRequestId++;
         _requests[requestId] = RedemptionRequest({
-            requester:   msg.sender,
-            recipient:   recipient,
+            requester: msg.sender,
+            recipient: recipient,
             agUSDLocked: agUSDAmount,
-            usdcOwed:    usdcOwed,
-            timestamp:   block.timestamp,
-            processed:   false,
-            cancelled:   false
+            usdcOwed: usdcOwed,
+            timestamp: block.timestamp,
+            processed: false,
+            cancelled: false
         });
         pendingRedemptionUsdcOwed += usdcOwed;
 
@@ -261,10 +261,10 @@ contract agUSDQueue is IagUSDQueue, AccessControl, Pausable, ReentrancyGuard {
     ///         of a user: the agUSD would only go back to the original requester.
     function cancelRedemption(uint256 requestId) external nonReentrant {
         RedemptionRequest storage req = _requests[requestId];
-        if (req.agUSDLocked == 0)          revert RequestNotFound(requestId);
-        if (req.processed)                 revert AlreadyProcessed(requestId);
-        if (req.cancelled)                 revert AlreadyCancelled(requestId);
-        if (msg.sender != req.requester)   revert NotRequester(requestId);
+        if (req.agUSDLocked == 0) revert RequestNotFound(requestId);
+        if (req.processed) revert AlreadyProcessed(requestId);
+        if (req.cancelled) revert AlreadyCancelled(requestId);
+        if (msg.sender != req.requester) revert NotRequester(requestId);
 
         req.cancelled = true;
         pendingRedemptionUsdcOwed -= req.usdcOwed;
@@ -340,8 +340,8 @@ contract agUSDQueue is IagUSDQueue, AccessControl, Pausable, ReentrancyGuard {
         // Reset allowance after use: belt-and-suspenders against vault calling transferFrom again.
         usdc.forceApprove(vault, 0);
 
-        vaultDeployed[vault]  += usdcAmount;
-        totalUsdcDeployed     += usdcAmount;
+        vaultDeployed[vault] += usdcAmount;
+        totalUsdcDeployed += usdcAmount;
 
         emit DeployedToVault(vault, usdcAmount, sharesOut);
     }
@@ -358,7 +358,7 @@ contract agUSDQueue is IagUSDQueue, AccessControl, Pausable, ReentrancyGuard {
         returns (uint256 usdcOut)
     {
         if (!isVault[vault]) revert VaultNotFound(vault);
-        if (shares == 0)     revert ZeroAmount();
+        if (shares == 0) revert ZeroAmount();
 
         // Snapshot the Queue's own share position before redeeming.
         // Using the Queue's balance (not vault.totalSupply) so other depositors
@@ -375,14 +375,13 @@ contract agUSDQueue is IagUSDQueue, AccessControl, Pausable, ReentrancyGuard {
         if (shares >= queueSharesBefore) {
             deployedReduction = deployedBefore; // full exit: clear precisely
         } else {
-            deployedReduction = queueSharesBefore > 0
-                ? (deployedBefore * shares) / queueSharesBefore
-                : deployedBefore;
+            deployedReduction =
+                queueSharesBefore > 0 ? (deployedBefore * shares) / queueSharesBefore : deployedBefore;
         }
         if (deployedReduction > totalUsdcDeployed) deployedReduction = totalUsdcDeployed;
 
         vaultDeployed[vault] -= deployedReduction;
-        totalUsdcDeployed    -= deployedReduction;
+        totalUsdcDeployed -= deployedReduction;
 
         emit RecalledFromVault(vault, shares, usdcOut);
     }
@@ -402,11 +401,7 @@ contract agUSDQueue is IagUSDQueue, AccessControl, Pausable, ReentrancyGuard {
     /// @param  usdcGross  Gross USDC yield to settle. Must be ≤ USDC balance
     ///                    of this contract minus any reserve needed for pending
     ///                    redemptions (operator responsibility to check off-chain).
-    function settleYield(uint256 usdcGross)
-        external
-        onlyRole(OPERATOR_ROLE)
-        nonReentrant
-    {
+    function settleYield(uint256 usdcGross) external onlyRole(OPERATOR_ROLE) nonReentrant {
         if (usdcGross == 0) revert ZeroAmount();
 
         // Guard: yield settlement must not consume USDC earmarked for pending redemptions.
@@ -449,7 +444,7 @@ contract agUSDQueue is IagUSDQueue, AccessControl, Pausable, ReentrancyGuard {
     function addCreditVault(address vault) external onlyRole(GOVERNOR_ROLE) {
         if (vault == address(0)) revert ZeroAddress();
         if (vault == forbiddenVault) revert ForbiddenVault(vault);
-        if (isVault[vault])      revert VaultAlreadyAdded(vault);
+        if (isVault[vault]) revert VaultAlreadyAdded(vault);
         isVault[vault] = true;
         _vaultList.push(vault);
         emit CreditVaultAdded(vault);
@@ -529,16 +524,14 @@ contract agUSDQueue is IagUSDQueue, AccessControl, Pausable, ReentrancyGuard {
         address vault = primaryVault;
         if (vault == address(0)) return;
 
-        uint256 reserve   = usdcReserve();
+        uint256 reserve = usdcReserve();
         uint256 totalUsdc = reserve + totalUsdcDeployed;
 
         // Target reserve: reserveRatioBps % of total system USDC.
         uint256 targetReserve = (totalUsdc * reserveRatioBps) / BPS_DENOM;
 
         // Floor: must also cover all pending (queued) redemptions.
-        uint256 floor = targetReserve > pendingRedemptionUsdcOwed
-            ? targetReserve
-            : pendingRedemptionUsdcOwed;
+        uint256 floor = targetReserve > pendingRedemptionUsdcOwed ? targetReserve : pendingRedemptionUsdcOwed;
 
         if (reserve <= floor) return;
         uint256 excess = reserve - floor;
@@ -549,7 +542,7 @@ contract agUSDQueue is IagUSDQueue, AccessControl, Pausable, ReentrancyGuard {
         usdc.forceApprove(vault, 0);
 
         vaultDeployed[vault] += excess;
-        totalUsdcDeployed    += excess;
+        totalUsdcDeployed += excess;
 
         emit DeployedToVault(vault, excess, sharesOut);
     }
@@ -580,11 +573,7 @@ contract agUSDQueue is IagUSDQueue, AccessControl, Pausable, ReentrancyGuard {
         return _vaultList;
     }
 
-    function redemptionRequest(uint256 requestId)
-        external
-        view
-        returns (RedemptionRequest memory)
-    {
+    function redemptionRequest(uint256 requestId) external view returns (RedemptionRequest memory) {
         return _requests[requestId];
     }
 

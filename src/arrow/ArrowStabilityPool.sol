@@ -78,9 +78,15 @@ contract ArrowStabilityPool is ERC4626, AccessControl, ReentrancyGuard {
     mapping(address => uint256) public depositBlock;
 
     event AdapterAdded(address indexed adapter);
-    event Liquidation(address indexed caller, address indexed adapter, address indexed user, uint256 absorbed);
+    event Liquidation(
+        address indexed caller, address indexed adapter, address indexed user, uint256 absorbed
+    );
     event CollateralBought(
-        address indexed buyer, address indexed adapter, uint256 tokenAmount, uint256 paid, uint256 lenderShares
+        address indexed buyer,
+        address indexed adapter,
+        uint256 tokenAmount,
+        uint256 paid,
+        uint256 lenderShares
     );
     event VaultSharesRedeemed(uint256 shares, uint256 usdgOut, uint256 lenderShares);
     event ExitRequested(address indexed user, uint256 shares, uint64 unlockAt);

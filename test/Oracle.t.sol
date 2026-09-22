@@ -49,7 +49,11 @@ contract OracleTest is Test {
         oracle.setStream(FEED, "TSLA", 18, true);
     }
 
-    function _report(int192 mid, uint32 obsTs, uint32 expiresAt, uint32 status) internal pure returns (bytes memory) {
+    function _report(int192 mid, uint32 obsTs, uint32 expiresAt, uint32 status)
+        internal
+        pure
+        returns (bytes memory)
+    {
         DataStreamsStockOracle.ReportV11 memory r = DataStreamsStockOracle.ReportV11({
             feedId: FEED,
             validFromTimestamp: obsTs,

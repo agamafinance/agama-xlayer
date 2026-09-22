@@ -71,8 +71,12 @@ contract StockOracle is AccessControl {
     uint256 public constant SEQUENCER_GRACE_PERIOD = 1 hours;
 
     event FeedAdded(bytes32 indexed ticker);
-    event PriceWritten(bytes32 indexed ticker, uint256 price, uint64 observedAt, bool marketOpen, bool forced);
-    event ParamsSet(uint256 maxOpenStaleness, uint256 maxClosedStaleness, uint256 maxDeviationBps, uint256 maxGapBps);
+    event PriceWritten(
+        bytes32 indexed ticker, uint256 price, uint64 observedAt, bool marketOpen, bool forced
+    );
+    event ParamsSet(
+        uint256 maxOpenStaleness, uint256 maxClosedStaleness, uint256 maxDeviationBps, uint256 maxGapBps
+    );
     event SequencerFeedSet(address feed);
 
     error UnknownTicker(bytes32 ticker);
@@ -136,9 +140,7 @@ contract StockOracle is AccessControl {
         _write(ticker, price, observedAt, marketOpen, true);
     }
 
-    function _write(bytes32 ticker, uint256 price, uint64 observedAt, bool marketOpen, bool forced)
-        internal
-    {
+    function _write(bytes32 ticker, uint256 price, uint64 observedAt, bool marketOpen, bool forced) internal {
         Feed storage f = _feeds[ticker];
         if (!f.exists) revert UnknownTicker(ticker);
         if (price == 0) revert ZeroPrice();
@@ -200,8 +202,12 @@ contract StockOracle is AccessControl {
         uint256 maxDeviationBps_,
         uint256 maxGapBps_
     ) external onlyRole(GOVERNOR_ROLE) {
-        if (maxOpenStaleness_ == 0 || maxClosedStaleness_ < maxOpenStaleness_) revert InvalidParams();
-        if (maxDeviationBps_ == 0 || maxGapBps_ < maxDeviationBps_ || maxGapBps_ > BPS) revert InvalidParams();
+        if (maxOpenStaleness_ == 0 || maxClosedStaleness_ < maxOpenStaleness_) {
+            revert InvalidParams();
+        }
+        if (maxDeviationBps_ == 0 || maxGapBps_ < maxDeviationBps_ || maxGapBps_ > BPS) {
+            revert InvalidParams();
+        }
         maxOpenStaleness = maxOpenStaleness_;
         maxClosedStaleness = maxClosedStaleness_;
         maxDeviationBps = maxDeviationBps_;

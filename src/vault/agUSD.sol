@@ -19,12 +19,9 @@ contract agUSD is ERC20, ERC20Permit, AccessControl, Pausable {
 
     bytes32 public constant GOVERNOR_ROLE = keccak256("GOVERNOR_ROLE");
     bytes32 public constant GUARDIAN_ROLE = keccak256("GUARDIAN_ROLE");
-    bytes32 public constant MINTER_ROLE   = keccak256("MINTER_ROLE");
+    bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
 
-    constructor(address governor, address guardian)
-        ERC20("Agama USD", "agUSD")
-        ERC20Permit("Agama USD")
-    {
+    constructor(address governor, address guardian) ERC20("Agama USD", "agUSD") ERC20Permit("Agama USD") {
         if (governor == address(0)) revert ZeroAddress();
         if (guardian == address(0)) revert ZeroAddress();
         _grantRole(DEFAULT_ADMIN_ROLE, governor);
