@@ -107,21 +107,21 @@ All 24 contracts are source-verified on the OKLink explorer. X Layer testnet has
 
 | Contract | Address |
 |---|---|
-| ArrowLendingPool | [`0xeeC557d8108406Bc9711ACa91Da618F7c0B609F2`](https://www.okx.com/web3/explorer/xlayer-test/address/0xeeC557d8108406Bc9711ACa91Da618F7c0B609F2) |
-| ArrowStabilityPool | [`0x34bD33eD3656641F1D2a5C38C3eb0D9e3A009CEc`](https://www.okx.com/web3/explorer/xlayer-test/address/0x34bD33eD3656641F1D2a5C38C3eb0D9e3A009CEc) |
-| DataStreamsStockOracle | [`0x83621D4ec8607E0B2190Ae3B990b0391AcdB18aB`](https://www.okx.com/web3/explorer/xlayer-test/address/0x83621D4ec8607E0B2190Ae3B990b0391AcdB18aB) |
-| ArrowXStockAdapter (TSLA) | [`0xdd12dfF517d7e9E304453D2B1CBb8Da259a6194b`](https://www.okx.com/web3/explorer/xlayer-test/address/0xdd12dfF517d7e9E304453D2B1CBb8Da259a6194b) |
-| ArrowXStockAdapter (NVDA) | [`0xF438FC2680410D17D1C2720d8FD852a2287675B4`](https://www.okx.com/web3/explorer/xlayer-test/address/0xF438FC2680410D17D1C2720d8FD852a2287675B4) |
-| ArrowXStockAdapter (SPY) | [`0xfE7E44c64a3F2A5097198b413DA70368be203116`](https://www.okx.com/web3/explorer/xlayer-test/address/0xfE7E44c64a3F2A5097198b413DA70368be203116) |
-| ArrowXStockAdapter (AAPL) | [`0x6Efa945e2B5689F4B235f3A23BBaA0345f852BE7`](https://www.okx.com/web3/explorer/xlayer-test/address/0x6Efa945e2B5689F4B235f3A23BBaA0345f852BE7) |
-| ArrowVaultShareAdapter | [`0x072944f6E671220aE73E89E61659E356437B16a5`](https://www.okx.com/web3/explorer/xlayer-test/address/0x072944f6E671220aE73E89E61659E356437B16a5) |
-| AgamaEarnRouter | [`0x3Cd1C5e687aE76eb80264FFCCd1CD7369B44190d`](https://www.okx.com/web3/explorer/xlayer-test/address/0x3Cd1C5e687aE76eb80264FFCCd1CD7369B44190d) |
-| AgamaAmplifyRouter | [`0x64691CFe29B3f1cB02dC26517da6281C7A9a7bf7`](https://www.okx.com/web3/explorer/xlayer-test/address/0x64691CFe29B3f1cB02dC26517da6281C7A9a7bf7) |
-| AgamaAccountFactory | [`0xec7EA4df98cc6B861E39055765d9EAaa872c8291`](https://www.okx.com/web3/explorer/xlayer-test/address/0xec7EA4df98cc6B861E39055765d9EAaa872c8291) |
-| agUSDQueue (Agama vault) | [`0xEAd648B0399e283690F10b8ABB765b337e158592`](https://www.okx.com/web3/explorer/xlayer-test/address/0xEAd648B0399e283690F10b8ABB765b337e158592) |
-| sagUSD (Agama vault share) | [`0x865ACC9E2034B54d720729B4F890507dF23efF11`](https://www.okx.com/web3/explorer/xlayer-test/address/0x865ACC9E2034B54d720729B4F890507dF23efF11) |
-| tUSDG (testnet stand-in) | [`0x06AA0672F88CCB05F7B8d0290C45D03b91f5F31c`](https://www.okx.com/web3/explorer/xlayer-test/address/0x06AA0672F88CCB05F7B8d0290C45D03b91f5F31c) |
-| wTSLAx (testnet stand-in) | [`0x9B43fA0d47aF23D49F3603979d849D96EF93eE3C`](https://www.okx.com/web3/explorer/xlayer-test/address/0x9B43fA0d47aF23D49F3603979d849D96EF93eE3C) |
+| ArrowLendingPool | [`0x2Ac40F92B5c14B9173e56bc292B5D5Db6F50Dd30`](https://www.okx.com/web3/explorer/xlayer-test/address/0x2Ac40F92B5c14B9173e56bc292B5D5Db6F50Dd30) |
+| ArrowStabilityPool | [`0x4B205375ACc3Ae42fB88C421693cfFc528b8f742`](https://www.okx.com/web3/explorer/xlayer-test/address/0x4B205375ACc3Ae42fB88C421693cfFc528b8f742) |
+| DataStreamsStockOracle | [`0x3432c4947d45fa2877368a641f81F813dab75485`](https://www.okx.com/web3/explorer/xlayer-test/address/0x3432c4947d45fa2877368a641f81F813dab75485) |
+| ArrowXStockAdapter (TSLA) | [`0x09E60A326Ef4622046A6787A2Dd5fa37F7eBcbE5`](https://www.okx.com/web3/explorer/xlayer-test/address/0x09E60A326Ef4622046A6787A2Dd5fa37F7eBcbE5) |
+| ArrowXStockAdapter (NVDA) | [`0xbdB876DDc95ef1dFf5742E2cd35916399bEfbC2c`](https://www.okx.com/web3/explorer/xlayer-test/address/0xbdB876DDc95ef1dFf5742E2cd35916399bEfbC2c) |
+| ArrowXStockAdapter (SPY) | [`0xcE93D3cd321250A25B1789919E28f080c643F805`](https://www.okx.com/web3/explorer/xlayer-test/address/0xcE93D3cd321250A25B1789919E28f080c643F805) |
+| ArrowXStockAdapter (AAPL) | [`0x36b2017febCB641f2284c214eF6bd8f1c33369dB`](https://www.okx.com/web3/explorer/xlayer-test/address/0x36b2017febCB641f2284c214eF6bd8f1c33369dB) |
+| ArrowVaultShareAdapter | [`0x46d3506009E36C8fFf400F9a29f9C6184c858D70`](https://www.okx.com/web3/explorer/xlayer-test/address/0x46d3506009E36C8fFf400F9a29f9C6184c858D70) |
+| AgamaEarnRouter | [`0xc9287F81306CE55C1B314a1283744565f14674CB`](https://www.okx.com/web3/explorer/xlayer-test/address/0xc9287F81306CE55C1B314a1283744565f14674CB) |
+| AgamaAmplifyRouter | [`0x2816c2B1E75DB31Aca9B462f034B39f1887C61B9`](https://www.okx.com/web3/explorer/xlayer-test/address/0x2816c2B1E75DB31Aca9B462f034B39f1887C61B9) |
+| AgamaAccountFactory | [`0xe126E35Dc82fB9377366FeC0E24d0173ae2Fcfd4`](https://www.okx.com/web3/explorer/xlayer-test/address/0xe126E35Dc82fB9377366FeC0E24d0173ae2Fcfd4) |
+| agUSDQueue (Agama vault) | [`0x85f98613F411BFa75B8140499920a0013046D5AD`](https://www.okx.com/web3/explorer/xlayer-test/address/0x85f98613F411BFa75B8140499920a0013046D5AD) |
+| sagUSD (Agama vault share) | [`0x324d84a81B5e59685731160e4BB215A0DCc9D77D`](https://www.okx.com/web3/explorer/xlayer-test/address/0x324d84a81B5e59685731160e4BB215A0DCc9D77D) |
+| tUSDG (testnet stand-in) | [`0xfFc0ee1965094bbE62342B8396Da6503A46E466a`](https://www.okx.com/web3/explorer/xlayer-test/address/0xfFc0ee1965094bbE62342B8396Da6503A46E466a) |
+| wTSLAx (testnet stand-in) | [`0xA3DD7fE15b5d903deecfdf2DF8D050a6631c8278`](https://www.okx.com/web3/explorer/xlayer-test/address/0xA3DD7fE15b5d903deecfdf2DF8D050a6631c8278) |
 
 Full list: [`deployments/1952.json`](deployments/1952.json).
 
