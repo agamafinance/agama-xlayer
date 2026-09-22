@@ -239,7 +239,9 @@ async def main():
         await page.wait_for_timeout(2500)
         await click_tx(page, "Approve USDG")
         await click_tx(page, "Open at")
-        await page.wait_for_timeout(4000)
+        shown = await wait_text(page, "section[aria-labelledby=amp-pos]",
+                                lambda t: re.search(r"Leverage\s*[12]\.\d\dx", t) is not None)
+        ok(shown, "Amplify position shown (exposure, debt, leverage)")
         await shot(page, "04-amplify-position")
 
         step("6. Amplify: close to USDG")
