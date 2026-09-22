@@ -13,6 +13,7 @@ import {IsagUSD} from "./interfaces/IsagUSD.sol";
 import {IagUSDQueue} from "./interfaces/IagUSDQueue.sol";
 
 /// @title agUSDQueue
+/// @custom:xlayer On X Layer the `usdc` slot holds USDG (Paxos, 6 decimals).
 /// @notice Central clearinghouse for the Agama USD stablecoin system.
 ///
 ///         DEPOSITS  — users send USDC, receive agUSD 1:1 (scaled for decimals).
@@ -48,6 +49,10 @@ contract agUSDQueue is IagUSDQueue, AccessControl, Pausable, ReentrancyGuard {
     bytes32 public constant GOVERNOR_ROLE = keccak256("GOVERNOR_ROLE");
     bytes32 public constant GUARDIAN_ROLE = keccak256("GUARDIAN_ROLE");
     bytes32 public constant OPERATOR_ROLE = keccak256("OPERATOR_ROLE");
+    /// @notice X Layer addition. Holders (the Arrow StabilityPool) redeem
+    ///         instantly regardless of `maxInstantRedemption`, within the
+    ///         available reserve: seized vault shares get recycled first.
+    bytes32 public constant PRIORITY_ROLE = keccak256("PRIORITY_ROLE");
 
     // ---- Constants ---------------------------------------------------------
 
@@ -114,6 +119,17 @@ contract agUSDQueue is IagUSDQueue, AccessControl, Pausable, ReentrancyGuard {
     // ---- Yield accounting --------------------------------------------------
 
     uint256 public totalYieldSettledUsdc;
+
+    // ---- Anti-circularity (X Layer addition) --------------------------------
+
+    /// @notice The lending pool that accepts sagUSD as collateral. The vault
+    ///         must NEVER lend into it: a vault that funds loans backed by its
+    ///         own shares is the Stream xUSD / Elixir deUSD loop. Set once.
+    address public forbiddenVault;
+
+    error ForbiddenVault(address vault);
+    error ForbiddenVaultAlreadySet();
+    event ForbiddenVaultSet(address vault);
 
     // ---- Constructor -------------------------------------------------------
 
@@ -211,7 +227,8 @@ contract agUSDQueue is IagUSDQueue, AccessControl, Pausable, ReentrancyGuard {
 
         // Attempt instant redemption.
         uint256 reserve = usdcReserve();
-        if (usdcOwed <= maxInstantRedemption && reserve >= usdcOwed) {
+        bool priority = hasRole(PRIORITY_ROLE, msg.sender);
+        if ((priority || usdcOwed <= maxInstantRedemption) && reserve >= usdcOwed) {
             agUSD.burn(address(this), agUSDAmount);
             usdc.safeTransfer(recipient, usdcOwed);
             emit RedemptionProcessed(0, recipient, usdcOwed);
@@ -420,8 +437,18 @@ contract agUSDQueue is IagUSDQueue, AccessControl, Pausable, ReentrancyGuard {
 
     // ---- Governance --------------------------------------------------------
 
+    /// @notice One-shot: records the lending pool this vault must never fund.
+    function setForbiddenVault(address vault) external onlyRole(GOVERNOR_ROLE) {
+        if (vault == address(0)) revert ZeroAddress();
+        if (forbiddenVault != address(0)) revert ForbiddenVaultAlreadySet();
+        if (isVault[vault]) revert ForbiddenVault(vault);
+        forbiddenVault = vault;
+        emit ForbiddenVaultSet(vault);
+    }
+
     function addCreditVault(address vault) external onlyRole(GOVERNOR_ROLE) {
         if (vault == address(0)) revert ZeroAddress();
+        if (vault == forbiddenVault) revert ForbiddenVault(vault);
         if (isVault[vault])      revert VaultAlreadyAdded(vault);
         isVault[vault] = true;
         _vaultList.push(vault);
