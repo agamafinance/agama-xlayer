@@ -79,6 +79,7 @@ contract AgamaAccount is ReentrancyGuard {
     error Underwater();
     error UnwindIncomplete(uint256 debtLeft);
     error SpreadPositive(uint256 borrowRateRay, uint256 vaultApyRay);
+    error InsufficientToRepay(uint256 shortfall);
 
     constructor(
         IArrowPool pool,
@@ -141,14 +142,20 @@ contract AgamaAccount is ReentrancyGuard {
         POOL.depositAsset(stockAdapter, abi.encode(amount));
     }
 
-    /// @notice Repay everything on `stockAdapter` (from the free vault shares
-    ///         first), return the stock, and send leftovers to the owner.
+    /// @notice Repay everything on `stockAdapter` (USDG already in the
+    ///         account first, then the free vault shares), return the stock,
+    ///         and send leftovers to the owner. If the shares do not cover
+    ///         the debt (after a soft deleverage, or when interest outran the
+    ///         vault yield), reverts with the exact shortfall: the router's
+    ///         `closeWithTopUp` brings it from the owner's wallet.
     function earnClose(address user, address stockAdapter) external nonReentrant auth(user) {
         uint256 debt = POOL.getPositionScaledDebt(stockAdapter, address(this), "");
         uint256 repaid;
         if (debt > 0) {
             uint256 have = USDG.balanceOf(address(this));
             if (have < debt) _redeemForUsdg(debt - have);
+            uint256 cash = USDG.balanceOf(address(this));
+            if (cash < debt) revert InsufficientToRepay(debt - cash);
             USDG.forceApprove(address(POOL), debt);
             repaid = POOL.repay(stockAdapter, "", type(uint256).max);
         }
@@ -275,6 +282,14 @@ contract AgamaAccount is ReentrancyGuard {
 
     function freeSharesValue() external view returns (uint256) {
         return VAULT_ADAPTER.valueOf(VAULT.balanceOf(address(this)));
+    }
+
+    /// @notice USDG the account can raise right now for a repayment: cash plus
+    ///         free shares at the live redemption rate (what the queue pays).
+    function redeemableUsdg() public view returns (uint256) {
+        uint256 shares = VAULT.balanceOf(address(this));
+        uint256 fromShares = shares == 0 ? 0 : VAULT.convertToAssets(shares) / AG_PER_USDG;
+        return USDG.balanceOf(address(this)) + fromShares;
     }
 
     // =====================================================================
