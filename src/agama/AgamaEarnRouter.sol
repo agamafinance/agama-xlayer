@@ -2,6 +2,7 @@
 pragma solidity 0.8.26;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 
@@ -19,6 +20,13 @@ import {IArrowPool} from "../interfaces/IArrowPool.sol";
 ///                the borrowed amount.
 ///         close: repay from the vault shares, stock back to the wallet,
 ///                leftover yield sent as vault shares.
+///
+///         OKX rails: withdrawing a tokenized stock from the OKX app to X Layer
+///         delivers the BASE xStock (TSLAx), not the ERC-4626 wrapper the
+///         markets take as collateral. `openWithBase` wraps it on the way in,
+///         and `close(..., unwrap = true)` hands the base token back, which is
+///         what a deposit to OKX expects. One transaction each way, no manual
+///         wrapping step.
 contract AgamaEarnRouter is AccessControl {
     using SafeERC20 for IERC20;
 
@@ -89,6 +97,29 @@ contract AgamaEarnRouter is AccessControl {
         emit Opened(user, adapter, amount, ltvBps, borrowed);
     }
 
+    /// @notice Open with the BASE xStock, the token an OKX withdrawal sends
+    ///         (TSLAx, NVDAx, ...). It is wrapped here, then used as collateral.
+    /// @param baseAmount Amount of the base xStock (18 decimals).
+    function openWithBase(address adapter, uint256 baseAmount, uint256 ltvBps)
+        external
+        returns (uint256 borrowed)
+    {
+        IERC4626 wrapper = IERC4626(IArrowAdapter(adapter).getAssetToken());
+        IERC20 base = IERC20(wrapper.asset());
+        base.safeTransferFrom(msg.sender, address(this), baseAmount);
+        base.forceApprove(address(wrapper), baseAmount);
+        uint256 wrapped = wrapper.deposit(baseAmount, address(this));
+
+        uint256 maxLtv = IArrowAdapter(adapter).MAX_LTV();
+        if (ltvBps > maxLtv) revert LtvTooHigh(ltvBps, maxLtv);
+        if (ltvBps > 0 && !IArrowAdapter(adapter).borrowAllowed()) revert MarketClosed();
+        address account = FACTORY.getOrCreate(msg.sender);
+        IERC20(address(wrapper)).safeTransfer(account, wrapped);
+        borrowed = (IArrowAdapter(adapter).valueOf(wrapped) * ltvBps) / BPS;
+        AgamaAccount(account).earnOpen(msg.sender, adapter, wrapped, borrowed);
+        emit Opened(msg.sender, adapter, wrapped, ltvBps, borrowed);
+    }
+
     function addCollateral(address adapter, uint256 amount) external {
         address account = FACTORY.getOrCreate(msg.sender);
         IERC20(IArrowAdapter(adapter).getAssetToken()).safeTransferFrom(msg.sender, account, amount);
@@ -96,7 +127,14 @@ contract AgamaEarnRouter is AccessControl {
     }
 
     function close(address adapter) external {
-        AgamaAccount(FACTORY.accountOf(msg.sender)).earnClose(msg.sender, adapter);
+        AgamaAccount(FACTORY.accountOf(msg.sender)).earnClose(msg.sender, adapter, false);
+        emit Closed(msg.sender, adapter);
+    }
+
+    /// @notice Close and hand back the BASE xStock instead of the wrapper, so
+    ///         the stock can go straight back to an OKX deposit address.
+    function closeToBase(address adapter) external {
+        AgamaAccount(FACTORY.accountOf(msg.sender)).earnClose(msg.sender, adapter, true);
         emit Closed(msg.sender, adapter);
     }
 
@@ -111,7 +149,7 @@ contract AgamaEarnRouter is AccessControl {
             toppedUp = short > maxTopUp ? maxTopUp : short;
             USDG.safeTransferFrom(msg.sender, account, toppedUp);
         }
-        AgamaAccount(account).earnClose(msg.sender, adapter);
+        AgamaAccount(account).earnClose(msg.sender, adapter, false);
         emit Closed(msg.sender, adapter);
     }
 

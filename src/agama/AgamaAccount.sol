@@ -152,7 +152,10 @@ contract AgamaAccount is ReentrancyGuard {
     ///         the debt (after a soft deleverage, or when interest outran the
     ///         vault yield), reverts with the exact shortfall: the router's
     ///         `closeWithTopUp` brings it from the owner's wallet.
-    function earnClose(address user, address stockAdapter) external nonReentrant auth(user) {
+    /// @param unwrap Hand the base xStock back instead of the ERC-4626 wrapper.
+    ///        That is the token an OKX deposit expects, so a user can send the
+    ///        position straight back to the exchange.
+    function earnClose(address user, address stockAdapter, bool unwrap) external nonReentrant auth(user) {
         uint256 debt = POOL.getPositionScaledDebt(stockAdapter, address(this), "");
         uint256 repaid;
         if (debt > 0) {
@@ -165,8 +168,13 @@ contract AgamaAccount is ReentrancyGuard {
         }
         uint256 bal = IArrowAdapter(stockAdapter).getInternalBalance(address(this), "");
         if (bal > 0) POOL.withdrawAsset(stockAdapter, abi.encode(bal));
-        IERC20 stock = IERC20(IArrowAdapter(stockAdapter).getAssetToken());
-        stock.safeTransfer(owner, stock.balanceOf(address(this)));
+        IERC4626 wrapper = IERC4626(IArrowAdapter(stockAdapter).getAssetToken());
+        uint256 held = IERC20(address(wrapper)).balanceOf(address(this));
+        if (unwrap && held > 0) {
+            wrapper.redeem(held, owner, address(this));
+        } else if (held > 0) {
+            IERC20(address(wrapper)).safeTransfer(owner, held);
+        }
         _sweepFree();
         emit EarnClosed(stockAdapter, repaid, bal);
     }

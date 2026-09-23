@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
+
 import {BaseFork} from "./Base.t.sol";
 import {AgamaEarnRouter} from "../src/agama/AgamaEarnRouter.sol";
 import {AgamaAccount} from "../src/agama/AgamaAccount.sol";
@@ -125,6 +128,36 @@ contract EarnForkTest is BaseFork {
         assertGt(back, 10e6 - short, "unused margin returned");
     }
 
+    /// Withdrawing a tokenized stock from the OKX app to X Layer delivers the
+    /// BASE xStock, not the ERC-4626 wrapper the market takes. Both directions
+    /// must work in one transaction, or the OKX rail does not connect.
+    function test_openWithBase_andCloseToBase_matchTheOkxRails() public {
+        IERC4626 wrapper = IERC4626(W_TSLAX);
+        IERC20 base = IERC20(wrapper.asset());
+        deal(address(base), alice, 10e18);
+
+        vm.startPrank(alice);
+        base.approve(address(d.earn), 10e18);
+        uint256 borrowed = d.earn.openWithBase(address(d.tsla), 10e18, 2_500);
+        vm.stopPrank();
+
+        AgamaEarnRouter.Position memory p = d.earn.position(alice, address(d.tsla));
+        // ERC-4626 rounds the wrap down by a wei.
+        assertApproxEqAbs(
+            wrapper.convertToAssets(p.collateral), 10e18, 2, "10 base xStock wrapped as collateral"
+        );
+        assertApproxEqRel(p.debt, (p.collateralValue * 25) / 100, 1e12);
+        assertGt(borrowed, 0);
+        assertEq(base.balanceOf(alice), 0, "the base token went in");
+
+        vm.prank(alice);
+        d.earn.closeToBase(address(d.tsla));
+        assertApproxEqAbs(base.balanceOf(alice), 10e18, 2, "base token back, ready to deposit on OKX");
+        // Her 10 wrapped tokens from setUp are untouched: only the base ones
+        // she brought in came back, in the form an OKX deposit takes.
+        assertEq(IERC20(W_TSLAX).balanceOf(alice), 10e18, "wrapped balance untouched");
+    }
+
     function test_softDeleverage_revertsWhenHealthy() public {
         _openEarn(alice, 10e18, 2_500);
         AgamaAccount acct = _account(alice);
@@ -137,10 +170,10 @@ contract EarnForkTest is BaseFork {
         AgamaAccount acct = _account(alice);
         vm.prank(bob);
         vm.expectRevert(AgamaAccount.NotAuthorized.selector);
-        acct.earnClose(alice, address(d.tsla));
+        acct.earnClose(alice, address(d.tsla), false);
         vm.prank(bob);
         vm.expectRevert(AgamaAccount.NotAuthorized.selector);
-        acct.earnClose(bob, address(d.tsla));
+        acct.earnClose(bob, address(d.tsla), false);
     }
 
     function test_directBorrow_blockedWhenMarketClosed() public {
