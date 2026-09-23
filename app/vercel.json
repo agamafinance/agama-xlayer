@@ -1,7 +1,0 @@
-{
-  "redirects": [
-    {"source": "/", "destination": "/xlayer", "permanent": false},
-    {"source": "/amplify", "destination": "/xlayer/amplify", "permanent": false},
-    {"source": "/lend", "destination": "/xlayer/lend", "permanent": false}
-  ]
-}

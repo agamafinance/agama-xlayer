@@ -34,43 +34,10 @@ export const deployments: Partial<Record<number, Deployment>> = {
       "wSPYx": "0x87bE9500e76A21F77a01c721ad09e572EdC59CaA",
       "wTSLAx": "0x2578339E88CfcF25889Ce41841fa243104c789b0"
     }
-  },
-  "1961": {
-    "adapters": {
-      "AAPL": "0x2bdCC0de6bE1f7D2ee689a0342D76F52E8EFABa3",
-      "NVDA": "0x5f3f1dBD7B74C6B46e8c44f98792A1dAf8d69154",
-      "SPY": "0xCD8a1C3ba11CF5ECfa6267617243239504a98d90",
-      "TSLA": "0x4c5859f0F772848b2D91F1D83E2Fe57935348029",
-      "VAULT": "0x7bc06c482DEAd17c0e297aFbC32f6e63d3846650"
-    },
-    "admin": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
-    "chainId": 1961,
-    "contracts": {
-      "agUSD": "0x70e0bA845a1A0F2DA3359C97E0285013525FFC49",
-      "amplifyRouter": "0xD8a5a9b31c3C0232E196d518E89Fd8bF83AcAd43",
-      "earnRouter": "0x2E2Ed0Cfd3AD2f1d34481277b3204d807Ca2F8c2",
-      "factory": "0x21dF544947ba3E8b3c32561399E88B52Dc8b2823",
-      "oracle": "0xc5a5C42992dECbae36851359345FE25997F5C42d",
-      "pool": "0x5eb3Bc0a489C5A8288765d2336659EbCA68FCd00",
-      "queue": "0x99bbA657f2BbC93c02D617f8bA121cB8Fc104Acf",
-      "sagUSD": "0x4826533B4897376654Bb4d4AD88B7faFD0C98528",
-      "stabilityPool": "0xFD471836031dc5108809D173A067e8486B9047A3",
-      "zapRouter": "0x36b58F5C1969B7b6591D752ea6F5486D069010AB"
-    },
-    "deployedAtBlock": 71410601,
-    "keeper": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
-    "tokens": {
-      "USDG": "0x4ae46a509F6b1D9056937BA4500cb143933D2dc8",
-      "wAAPLx": "0x943BF64D566c32A2Bcd41AC92FB63C111cC9De8f",
-      "wNVDAx": "0xa8ddb5Cd96b5222AFe198316E9A57CAA642850D5",
-      "wSPYx": "0xE7E553Cd128F0011777323A0b44a7b96EA1CB540",
-      "wTSLAx": "0xc3FdBe3A68EE5dE461D30415a8165cf9Aefe1171"
-    }
   }
 };
 
 /// Which file each deployment came from ("196-fork.json" = local fork deploy).
 export const deploymentSources: Partial<Record<number, string>> = {
-  "1952": "1952.json",
-  "1961": "1961.json"
+  "1952": "1952.json"
 };

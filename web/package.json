@@ -1,12 +1,16 @@
 {
-  "name": "agama-app",
+  "name": "agama-xlayer-web",
   "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev -p 3004",
     "build": "next build",
     "start": "next start -p 3004",
-    "lint": "next lint"
+    "lint": "next lint",
+    "typecheck": "tsc -p tsconfig.xlayer.json",
+    "sync": "node scripts/sync-xlayer.mjs",
+    "prebuild": "node scripts/sync-xlayer.mjs",
+    "predev": "node scripts/sync-xlayer.mjs"
   },
   "dependencies": {
     "@creit.tech/stellar-wallets-kit": "^2.4.0",
