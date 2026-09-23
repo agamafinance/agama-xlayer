@@ -232,6 +232,12 @@ def tick_redstone(dep):
     log("redstone:", prices, "(signed, verified on-chain)")
 
 
+def _marked_closed(oracle, ticker):
+    """True when the oracle holds a price for `ticker` and has it marked closed."""
+    f = call(oracle, "feed(bytes32)((uint128,uint64,bool,bool))", b32(ticker)).strip("()").split(", ")
+    return int(f[0].split()[0]) != 0 and f[2] == "false"
+
+
 def tick_prices(dep):
     oracle = dep["contracts"]["oracle"]
     if DS_KEY and DS_SECRET:
@@ -247,6 +253,13 @@ def tick_prices(dep):
     # only carries SPY. At the close it carries every ticker once, to flip the
     # market status and freeze the last price for the weekend.
     names = [t for t in TICKERS if t in prices and (not is_open or t not in REDSTONE_TICKERS)]
+    if is_open:
+        # And at the reopen it has to carry them once more. `pushRedStone`
+        # refuses to write a ticker whose stored status says closed, by design:
+        # RedStone keeps publishing out of session and the close must stay
+        # frozen. So RedStone cannot lift its own freeze. Only the keeper can,
+        # and if it never does, those three tickers stay shut for good.
+        names += [t for t in REDSTONE_TICKERS if t in prices and t not in names and _marked_closed(oracle, t)]
     if not names:
         return
     # Observation time = chain time (a fork's clock may lag the wall clock).
