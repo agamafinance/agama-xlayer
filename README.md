@@ -14,7 +14,7 @@ Built for OKX Dev Day 2026, track **Build a Market** (tokenized stocks and RWA o
 
 - **xStocks are native on X Layer**: 928 tokenized equities, about 173M$ of market cap. No lending market accepts them as collateral today (Aave on X Layer lists none, and there is no Morpho or Euler).
 - **USDG is X Layer's dollar**: 1.51B$ of supply, almost none of it in DeFi. Arrow lenders earn a borrow rate backed by overcollateralized stock loans instead of leaving it idle.
-- **Chainlink Data Streams publishes US equities on X Layer**: verification is free on-chain (no FeeManager on the X Layer VerifierProxy), so the oracle accepts signed reports from anyone.
+- **No stock price a lending market can read**: Chainlink has no equity push feed on X Layer, and Data Streams is not live there either. The OKX team confirmed it on 2026-09-23, and the chain agrees: the VerifierProxy is deployed on both networks but mainnet never had a verifier initialized on it (`getVerifier` returns the zero address). So the price layer is something a lender has to build.
 
 ## Architecture
 
@@ -172,8 +172,8 @@ Two things we learned doing it, both handled in the code: the aggregator's JIT r
 
 ## Oracle: how prices reach X Layer
 
-1. **Chainlink Data Streams** (`pushReports`): signed v11 reports, verified on-chain by the X Layer VerifierProxy. Expiry, age and ordering are enforced by our contract, since the FeeManager that normally enforces expiry is absent on X Layer.
-2. **Chainlink relay** (current default): the keeper reads the Chainlink TSLA/USD, NVDA/USD, SPY/USD, AAPL/USD push feeds on Arbitrum and writes them through `pushMany`, bounded on-chain by a 15% per-update deviation cap (50% on a reopen gap).
+1. **Chainlink relay** (what runs today): the keeper reads the Chainlink TSLA/USD, NVDA/USD, SPY/USD and AAPL/USD push feeds on Arbitrum and writes them through `pushMany`, bounded on-chain by a 15% per-update deviation cap (50% on a reopen gap), with market status from the xStocks 24/5 calendar. The keeper is a trusted role, bounded by those caps.
+2. **Chainlink Data Streams** (ready, waiting on the network): `pushReports` verifies a signed v11 report against the X Layer VerifierProxy and is permissionless, since a verified report is the source of truth whoever carries it. Our contract enforces expiry, age and ordering itself, because the FeeManager that usually does it is absent here. Data Streams is not live on X Layer yet (see above), so this path ships dormant: when it is switched on, adding the stream ids is a governance call, no redeploy.
 
 ## Known limits, stated plainly
 
