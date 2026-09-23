@@ -120,7 +120,7 @@ What was added on top of the fork: the `xlayer` platform and its network entry, 
 
 ```bash
 forge build
-forge test                         # 69 tests, most on a fork of X Layer mainnet (real USDG, real xStocks)
+forge test                         # 72 tests, most on a fork of X Layer mainnet (real USDG, real xStocks)
 
 # local X Layer mainnet fork with the full stack and real Chainlink prices
 anvil --fork-url https://xlayerrpc.okx.com --chain-id 1961 &
@@ -180,7 +180,7 @@ E2E PASSED
 
 ### X Layer mainnet (chain 196)
 
-Not deployed: the hackathon demo lives on testnet so anyone can try it with the faucet. Mainnet is still where the tests run: the 69 Foundry tests and the same end-to-end scenario execute on a fork of X Layer mainnet against the real USDG, the real Backed wrappers and the real OKX DEX aggregator (`./scripts/fork-reset.sh && python3 scripts/e2e.py fork`, and `scripts/zap_check.py`). `script/Deploy.s.sol` and `scripts/mainnet-deploy.sh` are ready for a guarded launch after the hackathon.
+Not deployed: the hackathon demo lives on testnet so anyone can try it with the faucet. Mainnet is still where the tests run: the 72 Foundry tests and the same end-to-end scenario execute on a fork of X Layer mainnet against the real USDG, the real Backed wrappers and the real OKX DEX aggregator (`./scripts/fork-reset.sh && python3 scripts/e2e.py fork`, and `scripts/zap_check.py`). `script/Deploy.s.sol` and `scripts/mainnet-deploy.sh` are ready for a guarded launch after the hackathon.
 
 ## OKX integrations
 
