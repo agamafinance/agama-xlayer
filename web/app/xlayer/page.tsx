@@ -61,6 +61,9 @@ export default function XLayerEarnPage() {
   const spread = proto ? proto.vaultApy - proto.borrowRate : undefined;
   const extra = spread !== undefined ? (spread * BigInt(Math.round(ltv * 100))) / BPS : undefined;
 
+  const canBorrow = m ? m.borrowAllowed : true;
+  const borrowBlocked = !!m && !canBorrow && ltv > 0;
+
   const bump = () => { setTick((t) => t + 1); refresh(); };
 
   /// Buy the stock and open the position in one transaction. On testnet the
@@ -278,6 +281,13 @@ export default function XLayerEarnPage() {
                   <span>Off, deposit only</span>
                   <span>{maxLtv}% market max</span>
                 </div>
+                {borrowBlocked && (
+                  <p className="mt-2 text-[12px] text-[#b4571f]">
+                    The equity market is closed, so new borrows are frozen on chain until it reopens.
+                    You can still deposit the stock as collateral, and the position starts earning the
+                    moment borrowing reopens. Slide to zero to deposit now.
+                  </p>
+                )}
               </div>
 
               <dl className="mt-4 space-y-2 text-[13px]">
@@ -287,18 +297,24 @@ export default function XLayerEarnPage() {
 
               <button
                 onClick={address ? (buying ? buyAndEarn : open) : connect}
-                disabled={busy || (!!address && (amt === 0n || amt > (buying ? (proto?.usdg ?? 0n) : (balance ?? 0n))))}
+                disabled={
+                  busy ||
+                  borrowBlocked ||
+                  (!!address && (amt === 0n || amt > (buying ? (proto?.usdg ?? 0n) : (balance ?? 0n))))
+                }
                 className="mt-4 w-full rounded-full bg-[#254839] px-5 py-3.5 text-[15px] font-medium text-[#fdf8ed] transition-colors hover:bg-[#1F3D31] disabled:opacity-45"
               >
                 {!address
                   ? 'Connect Wallet'
                   : busy
                     ? status || 'Working…'
-                    : buying
-                      ? 'Buy and earn'
-                      : ltv > 0
-                        ? 'Deposit and borrow'
-                        : 'Deposit as collateral'}
+                    : borrowBlocked
+                      ? 'Borrowing frozen, market closed'
+                      : buying
+                        ? 'Buy and earn'
+                        : ltv > 0
+                          ? 'Deposit and borrow'
+                          : 'Deposit as collateral'}
               </button>
               {status && !busy && <p className="mt-2 text-[12px] text-fg-muted">{status}</p>}
             </div>
