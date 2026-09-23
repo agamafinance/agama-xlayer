@@ -243,6 +243,9 @@ contract AgamaAccount is ReentrancyGuard {
 
         uint256 value = IArrowAdapter(stockAdapter).getAssetValue(address(this), "");
         uint256 debt = POOL.getPositionScaledDebt(stockAdapter, address(this), "");
+        // Nothing pledged and nothing owed: say so, rather than dividing by zero
+        // on the way out. The target survives a close, so an agent can land here.
+        if (value == 0 && debt == 0) revert AlreadyOnTarget(0, target);
         uint256 wanted = (value * target) / BPS;
         uint256 band = (value * REBALANCE_BAND_BPS) / BPS;
 

@@ -61,6 +61,21 @@ contract AgentsForkTest is BaseFork {
         acct.rebalance(address(d.tsla));
     }
 
+    function test_onAClosedPosition_theAgentSaysSoInsteadOfPanicking() public {
+        _openEarn(alice, 10e18, 2_500);
+        AgamaAccount acct = _account(alice);
+        deal(address(usdg), alice, 10e6);
+        vm.startPrank(alice);
+        usdg.approve(address(d.earn), 10e6);
+        d.earn.closeWithTopUp(address(d.tsla), 10e6);
+        vm.stopPrank();
+
+        // The target outlives the close, so a keeper sweeping every account will
+        // land here. It must get the custom error, not a division by zero.
+        vm.expectPartialRevert(AgamaAccount.AlreadyOnTarget.selector);
+        acct.rebalance(address(d.tsla));
+    }
+
     function test_theYieldComesBackAsMoreStock() public {
         _openEarn(alice, 10e18, 2_500);
         AgamaAccount acct = _account(alice);

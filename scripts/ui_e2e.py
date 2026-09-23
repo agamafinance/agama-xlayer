@@ -131,10 +131,17 @@ def call(to, sig, *args):
 
 
 def admin_send(to, sig, *args):
-    r = subprocess.run(["cast", "send", to, sig, *args, "--private-key", admin_key(), "--rpc-url", RPC,
-                        "--gas-limit", "3000000"], capture_output=True, text=True)
-    if r.returncode != 0:  # the key must never reach a log line
-        raise SystemExit(f"   FAIL: admin {sig.split('(')[0]}: {r.stderr.strip()[-200:]}")
+    cmd = ["cast", "send", to, sig, *args, "--private-key", admin_key(), "--rpc-url", RPC,
+           "--gas-limit", "3000000"]
+    for attempt in range(6):
+        r = subprocess.run(cmd, capture_output=True, text=True)
+        if r.returncode == 0:
+            return
+        # The testnet RPC is load balanced: a node can still be a block behind.
+        if ("nonce too low" in r.stderr or "already known" in r.stderr) and attempt < 5:
+            time.sleep(4)
+            continue
+        raise SystemExit(f"   FAIL: admin {sig.split('(')[0]}: {r.stderr.strip()[-200:]}")  # never log the key
 
 
 def tsla_price():

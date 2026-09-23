@@ -317,12 +317,12 @@ def tick_agents(dep):
         acct = call(factory, "accounts(uint256)(address)", str(i))
         for ticker in TICKERS:
             adapter = dep["adapters"][ticker]
-            if first_int(call(acct, "targetLtvBps(address)(uint256)", adapter)) == 0:
+            target = first_int(call(acct, "targetLtvBps(address)(uint256)", adapter))
+            if target == 0:  # the user never opened an Earn position on this stock
                 continue
             # Only send when the position is actually off target and the
             # account can act on it: a keeper that fires blind wastes gas and
             # fills the log with reverts.
-            target = first_int(call(acct, "targetLtvBps(address)(uint256)", adapter))
             value = first_int(call(adapter, "getAssetValue(address,bytes)(uint256)", acct, "0x"))
             debt = first_int(call(pool, "getPositionScaledDebt(address,address,bytes)(uint256)",
                                   adapter, acct, "0x"))
