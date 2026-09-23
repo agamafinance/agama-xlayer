@@ -270,6 +270,11 @@ function Ticket({
         />
       </div>
 
+      <p className="mt-2 text-xs leading-relaxed text-mute">
+        If the borrow rate rises above the vault APY, the spread guard unwinds the loop back to 1x on its own: anyone
+        can trigger it and your equity stays in vault shares. You do not have to watch the rate.
+      </p>
+
       <div className="mt-4">
         <Row
           label="Net APY"

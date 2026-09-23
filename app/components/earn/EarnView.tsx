@@ -1,9 +1,10 @@
 "use client";
 
+import {useQuery} from "@tanstack/react-query";
 import clsx from "clsx";
-import {zeroAddress} from "viem";
-import {useMemo, useState, type ReactNode} from "react";
-import {useAccount, useReadContract} from "wagmi";
+import {encodeFunctionData, parseAbi, zeroAddress} from "viem";
+import {useEffect, useMemo, useState, type ReactNode} from "react";
+import {useAccount, usePublicClient, useReadContract} from "wagmi";
 
 import {BuyTicket} from "@/components/earn/BuyTicket";
 import {HFGauge} from "@/components/HFGauge";
@@ -11,6 +12,7 @@ import {TxButton} from "@/components/TxButton";
 import {AmountField, Divider, Figure, NotDeployed, PageHead, Pill, Row, Slider} from "@/components/ui";
 import {TESTNET_ID, XLAYER_ID, chainName, type AppChainId} from "@/lib/chains";
 import {useDeployment} from "@/lib/deployment";
+import {useLocalState, type AgentAction} from "@/lib/local";
 import {
   BPS,
   RAY,
@@ -41,6 +43,15 @@ import {useTx} from "@/lib/tx";
 
 const SOFT_TRIGGER = 1.15;
 
+/// Testnet stand-in DEX the agents may route through (allowlisted in the zap).
+const testDexAbi = parseAbi(["function swap(address wrapper, uint256 usdgIn, uint256 priceUsdg6) returns (uint256 out)"]);
+
+/// What the keepers emit on an account when they act on a market.
+const agentEvents = parseAbi([
+  "event Rebalanced(address indexed caller, address indexed adapter, int256 debtDelta, uint256 ltvBpsAfter)",
+  "event CompoundedIntoStock(address indexed caller, address indexed adapter, uint256 usdgSpent, uint256 stockAdded)",
+]);
+
 export function EarnView() {
   const {chainId, d} = useDeployment();
   const {address} = useAccount();
@@ -63,10 +74,41 @@ export function EarnView() {
 
   const spread = proto.vaultApy !== undefined && proto.borrowRate !== undefined ? proto.vaultApy - proto.borrowRate : undefined;
 
+  // What the agents added since the deposit. The chain keeps no deposit
+  // baseline and the public RPC caps log scans at 100 blocks, so the browser
+  // remembers the deposited amount and the growth is read off the collateral.
+  const [baseline, setBaseline] = useLocalState<string>(
+    `agama.deposited.${chainId}.${address ?? "none"}.${m.adapter}`,
+    "0",
+  );
+  const deposited = (() => {
+    try {
+      return BigInt(baseline);
+    } catch {
+      return 0n;
+    }
+  })();
+  useEffect(() => {
+    // No deposit baseline on chain: seed it the first time a position shows up
+    // so the stock the agents add from here on is visible.
+    if (deposited === 0n && m.hasPosition && m.position && m.position.collateral > 0n) {
+      setBaseline(m.position.collateral.toString());
+    }
+  }, [deposited, m.hasPosition, m.position, setBaseline]);
+  const grown =
+    m.position && deposited > 0n && m.position.collateral > deposited ? m.position.collateral - deposited : undefined;
+  const positionHf = m.position
+    ? hfToNumber(m.position.healthFactorRay === 0n ? undefined : m.position.healthFactorRay)
+    : undefined;
+  const positionExtra =
+    spread !== undefined && m.position && m.position.collateralValue > 0n
+      ? (spread * ((m.position.debt * BPS) / m.position.collateralValue)) / BPS
+      : undefined;
+
   if (!d) {
     return (
       <>
-        <PageHead title="Earn on your stocks" />
+        <PageHead title="Deposit your stock, get more stock" />
         <NotDeployed chainName={chainName(chainId)} />
       </>
     );
@@ -75,28 +117,54 @@ export function EarnView() {
   return (
     <>
       <PageHead
-        title="Earn on your stocks"
+        title="Deposit your stock, get more stock"
         stats={
-          <>
-            <Figure
-              label="Agama vault APY"
-              value={fmtRay(proto.vaultApy)}
-              sub={proto.vaultApyIsTarget ? "Target, not yet measured" : "Realized, last NAV snapshots"}
-              tone="mint"
-            />
-            <Figure label="Arrow borrow APR" value={fmtRay(proto.borrowRate)} sub="USDG, variable" />
-            <Figure
-              label="Spread you earn"
-              value={spread === undefined ? "-" : fmtRay(spread)}
-              sub="On every USDG borrowed"
-              tone={spread !== undefined && spread < 0n ? "coral" : undefined}
-            />
-          </>
+          m.hasPosition && m.position ? (
+            <>
+              <Figure
+                label={`Your ${m.symbol ?? m.stock.wrapper}`}
+                value={fmt(m.position.collateral, STOCK_DECIMALS, 4)}
+                sub={
+                  grown !== undefined
+                    ? `+${fmt(grown, STOCK_DECIMALS, 4)} added by the agents`
+                    : `${fmtUsd(m.position.collateralValue)} at the oracle`
+                }
+                tone="mint"
+              />
+              <Figure
+                label="Extra yield on it"
+                value={positionExtra === undefined ? "-" : `${fmtRay(positionExtra)} a year`}
+                sub={`Vault ${fmtRay(proto.vaultApy)} less borrow ${fmtRay(proto.borrowRate)}`}
+                tone={positionExtra !== undefined && positionExtra < 0n ? "coral" : undefined}
+              />
+              <Figure
+                label="Health factor"
+                value={positionHf === undefined ? "-" : Number.isFinite(positionHf) ? positionHf.toFixed(2) : "No debt"}
+                sub="Liquidation at 1.00, agents act at 1.15"
+                tone={positionHf !== undefined && positionHf < 1.15 ? "sand" : undefined}
+              />
+            </>
+          ) : (
+            <>
+              <Figure
+                label="Agama vault APY"
+                value={fmtRay(proto.vaultApy)}
+                sub={proto.vaultApyIsTarget ? "Target, not yet measured" : "Realized, last NAV snapshots"}
+                tone="mint"
+              />
+              <Figure label="Arrow borrow APR" value={fmtRay(proto.borrowRate)} sub="USDG, variable" />
+              <Figure
+                label="Spread you earn"
+                value={spread === undefined ? "-" : fmtRay(spread)}
+                sub="On every USDG borrowed"
+                tone={spread !== undefined && spread < 0n ? "coral" : undefined}
+              />
+            </>
+          )
         }
       >
-        Deposit an xStock, wrapped or straight out of the OKX app, and borrow USDG against it. The USDG goes into the
-        Agama vault. You keep the stock exposure and earn the spread between the vault APY and the borrow rate on what
-        you borrowed.
+        Deposit an xStock, wrapped or straight out of the OKX app. The USDG borrowed against it works in the Agama
+        vault, and permissionless agents turn that yield into more stock and keep the position at the level you picked.
       </PageHead>
 
       <MarketBoard markets={markets} sel={sel} onSelect={setSel} connected={!!address} />
@@ -124,9 +192,18 @@ export function EarnView() {
             chainId={chainId}
             tabs={zap ? <ModeTabs mode={mode} onChange={setMode} /> : undefined}
             zapNote={!zap}
+            onDeposited={(added) => setBaseline(((deposited > 0n ? deposited : 0n) + added).toString())}
           />
         )}
-        <PositionPanel m={m} chainId={chainId} router={d.contracts.earnRouter} usdg={d.tokens.USDG} />
+        <PositionPanel
+          m={m}
+          chainId={chainId}
+          router={d.contracts.earnRouter}
+          usdg={d.tokens.USDG}
+          testDex={testDex}
+          grown={grown}
+          onClosed={() => setBaseline("0")}
+        />
       </div>
     </>
   );
@@ -280,6 +357,7 @@ function Ticket({
   chainId,
   tabs,
   zapNote,
+  onDeposited,
 }: {
   m: StockMarket;
   proto: Proto;
@@ -287,6 +365,7 @@ function Ticket({
   chainId: AppChainId;
   tabs?: ReactNode;
   zapNote?: boolean;
+  onDeposited: (collateralAdded: bigint) => void;
 }) {
   const {address} = useAccount();
   const [amountStr, setAmountStr] = useState("");
@@ -454,15 +533,15 @@ function Ticket({
         )}
         <Slider
           id="earn-ltv"
-          label="Borrow against it (LTV)"
+          label="How hard your stock works"
           value={ltv}
           min={0}
           max={maxLtvPct}
           step={0.5}
           onChange={setLtvPct}
-          display={`${ltv.toFixed(1)}%`}
-          minLabel="0%, deposit only"
-          maxLabel={`${maxLtvPct.toFixed(0)}% max`}
+          display={<span className="text-sm text-dim">{ltv.toFixed(1)}% LTV</span>}
+          minLabel="Off, deposit only"
+          maxLabel={`${maxLtvPct.toFixed(0)}% LTV, market max`}
         />
       </div>
 
@@ -525,7 +604,10 @@ function Ticket({
               functionName: useBase ? "openWithBase" : "open",
               args: [m.adapter, amount, ltvBps],
             });
-            if (ok) setAmountStr("");
+            if (ok) {
+              onDeposited(collateralIn ?? amount);
+              setAmountStr("");
+            }
           }}
         />
       </div>
@@ -538,7 +620,10 @@ function Ticket({
             disabled={!canSubmit || needsApproval}
             onClick={async () => {
               const ok = await addTx.send({address: router, abi: earnRouterAbi, functionName: "addCollateral", args: [m.adapter, amount]});
-              if (ok) setAmountStr("");
+              if (ok) {
+                onDeposited(amount);
+                setAmountStr("");
+              }
             }}
           />
         </div>
@@ -560,16 +645,24 @@ function PositionPanel({
   chainId,
   router,
   usdg,
+  testDex,
+  grown,
+  onClosed,
 }: {
   m: StockMarket;
   chainId: AppChainId;
   router: `0x${string}`;
   usdg: `0x${string}`;
+  testDex?: `0x${string}`;
+  grown?: bigint;
+  onClosed: () => void;
 }) {
   const {address} = useAccount();
   const closeTx = useTx(chainId);
   const closeBaseTx = useTx(chainId);
   const softTx = useTx(chainId);
+  const rebalanceTx = useTx(chainId);
+  const compoundTx = useTx(chainId);
   const p = m.position;
   const has = m.hasPosition && !!p;
 
@@ -594,31 +687,113 @@ function PositionPanel({
   // Same two paths as the wrapper close, but handing back the base xStock.
   const closeBase = async () => {
     if (!needsTopUp) {
-      await closeBaseTx.send({address: router, abi: earnRouterAbi, functionName: "closeToBase", args: [m.adapter]});
+      if (await closeBaseTx.send({address: router, abi: earnRouterAbi, functionName: "closeToBase", args: [m.adapter]}))
+        onClosed();
       return;
     }
     if ((topUpAllowance ?? 0n) < maxTopUp) {
       const ok = await approve(closeBaseTx, usdg, router, maxTopUp);
       if (!ok) return;
     }
-    await closeBaseTx.send({
-      address: router,
-      abi: earnRouterAbi,
-      functionName: "closeToBaseWithTopUp",
-      args: [m.adapter, maxTopUp],
-    });
+    if (
+      await closeBaseTx.send({
+        address: router,
+        abi: earnRouterAbi,
+        functionName: "closeToBaseWithTopUp",
+        args: [m.adapter, maxTopUp],
+      })
+    )
+      onClosed();
   };
 
   const close = async () => {
     if (!needsTopUp) {
-      await closeTx.send({address: router, abi: earnRouterAbi, functionName: "close", args: [m.adapter]});
+      if (await closeTx.send({address: router, abi: earnRouterAbi, functionName: "close", args: [m.adapter]})) onClosed();
       return;
     }
     if ((topUpAllowance ?? 0n) < maxTopUp) {
       const ok = await approve(closeTx, usdg, router, maxTopUp);
       if (!ok) return;
     }
-    await closeTx.send({address: router, abi: earnRouterAbi, functionName: "closeWithTopUp", args: [m.adapter, maxTopUp]});
+    if (await closeTx.send({address: router, abi: earnRouterAbi, functionName: "closeWithTopUp", args: [m.adapter, maxTopUp]}))
+      onClosed();
+  };
+
+  // ---- Agents -------------------------------------------------------------
+  // Both entry points are permissionless: the buttons are a manual trigger of
+  // what the keepers do, no approval needed.
+  const target = m.targetLtvBps;
+  const currentLtvBps =
+    has && p!.collateralValue > 0n ? (p!.debt * BPS) / p!.collateralValue : undefined;
+  const bandBps = m.rebalanceBandBps ?? 100n;
+  const offTarget =
+    target !== undefined && target > 0n && currentLtvBps !== undefined
+      ? (currentLtvBps > target ? currentLtvBps - target : target - currentLtvBps) > bandBps
+      : false;
+  const surplus =
+    m.redeemableUsdg !== undefined && p && m.redeemableUsdg > p.debt ? m.redeemableUsdg - p.debt : 0n;
+  // Below a cent of surplus there is nothing worth swapping.
+  const compoundable = (surplus * 999n) / 1000n;
+  const canCompound = has && !!testDex && compoundable >= 10_000n && !!m.wrapperPrice && m.wrapperPrice > 0n;
+
+  // Seen while the app is open: the public RPC caps log scans at 100 blocks,
+  // so history further back is not readable from the browser.
+  const [lastAction, setLastAction] = useLocalState<AgentAction | null>(
+    `agama.agent.${chainId}.${address ?? "none"}.${m.adapter}`,
+    null,
+  );
+  // Agent actions, polled over the last 100 blocks: that is the widest range
+  // the public X Layer RPC accepts for eth_getLogs, and the poll is faster
+  // than 100 blocks so nothing is missed while the page is open.
+  const client = usePublicClient({chainId});
+  useQuery({
+    queryKey: ["agent-actions", chainId, m.account, m.adapter],
+    enabled: !!client && !!m.account,
+    refetchInterval: 15_000,
+    queryFn: async () => {
+      const latest = await client!.getBlockNumber();
+      const fromBlock = latest > 99n ? latest - 99n : 0n;
+      const logs = await client!.getLogs({
+        address: m.account,
+        events: agentEvents,
+        fromBlock,
+        toBlock: latest,
+      });
+      const mine = logs.filter((l) => {
+        const a = l.args as {adapter?: string};
+        return a.adapter?.toLowerCase() === m.adapter.toLowerCase();
+      });
+      const last = mine[mine.length - 1];
+      if (!last) return null;
+      const block = await client!.getBlock({blockNumber: last.blockNumber});
+      const args = last.args as {stockAdded?: bigint; debtDelta?: bigint};
+      const action: AgentAction =
+        args.stockAdded !== undefined
+          ? {kind: "compound", amount: args.stockAdded.toString(), at: Number(block.timestamp) * 1000}
+          : {kind: "rebalance", amount: (args.debtDelta ?? 0n).toString(), at: Number(block.timestamp) * 1000};
+      if (!lastAction || action.at > lastAction.at) setLastAction(action);
+      return action;
+    },
+  });
+
+  const compound = async () => {
+    if (!testDex || !m.wrapperPrice) return;
+    // Spend a shade under the surplus: interest accrues between this read and
+    // the transaction landing, and `usdgIn` must be what the calldata spends.
+    const usdgIn = (surplus * 999n) / 1000n;
+    if (usdgIn === 0n) return;
+    const minOut = (((usdgIn * 10n ** 18n) / m.wrapperPrice) * 98n) / 100n;
+    const data = encodeFunctionData({
+      abi: testDexAbi,
+      functionName: "swap",
+      args: [m.token, usdgIn, m.wrapperPrice],
+    });
+    await compoundTx.send({
+      address: m.account!,
+      abi: accountAbi,
+      functionName: "compoundIntoStock",
+      args: [m.adapter, usdgIn, testDex, testDex, data, minOut],
+    });
   };
 
   const hf = has ? hfToNumber(p!.healthFactorRay === 0n ? undefined : p!.healthFactorRay) : undefined;
@@ -655,14 +830,87 @@ function PositionPanel({
         </div>
         <div>
           <Row
-            label="Free vault shares"
+            label="Yield buffer"
             value={has ? fmtUsd(p!.freeSharesValue) : "-"}
             sub={has ? `${fmt(p!.freeShares, SAGUSD_DECIMALS, 2)} sagUSD` : undefined}
           />
           <Row label="Buffer vs debt" value={coverage !== undefined ? `${coverage.toFixed(1)}%` : "-"} />
-          <Row label="Net value" value={net !== undefined ? fmtUsd(net) : "-"} />
+          <Row
+            label="Stock added by the agents"
+            value={grown !== undefined ? `+${fmt(grown, STOCK_DECIMALS, 4)}` : "-"}
+            sub={grown !== undefined ? (m.symbol ?? m.stock.wrapper) : undefined}
+          />
         </div>
       </div>
+
+      {has && (
+        <div className="mt-4 rounded-box border border-line/70 p-3">
+          <p className="text-xs leading-relaxed text-mute">
+            Agents keep this position at your chosen level and turn the vault yield into more stock. You do not have to
+            come back.
+          </p>
+          <div className="mt-2 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 text-xs">
+            <span className="text-mute">
+              {target !== undefined && target > 0n ? (
+                <>
+                  Target <span className="text-white">{fmtBps(target, 1)}</span>
+                  {currentLtvBps !== undefined && <span className="text-dim"> now {fmtBps(currentLtvBps, 1)}</span>}
+                </>
+              ) : (
+                <>
+                  Now <span className="text-white">{fmtBps(currentLtvBps, 1)}</span>
+                  <span className="text-dim"> no target recorded on this market</span>
+                </>
+              )}
+            </span>
+            <span className="text-dim">
+              {lastAction
+                ? `Last agent action: ${
+                    lastAction.kind === "compound"
+                      ? `+${fmt(BigInt(lastAction.amount), STOCK_DECIMALS, 4)} ${m.symbol ?? m.stock.wrapper}`
+                      : `debt ${BigInt(lastAction.amount) < 0n ? "-" : "+"}${fmt(
+                          BigInt(lastAction.amount) < 0n ? -BigInt(lastAction.amount) : BigInt(lastAction.amount),
+                          USDG_DECIMALS,
+                          2,
+                        )} USDG`
+                  }, ${fmtAge(Math.floor(lastAction.at / 1000))}`
+                : "No agent action seen while this page was open"}
+            </span>
+          </div>
+          <div className="mt-2.5 grid grid-cols-2 gap-3">
+            <TxButton
+              tx={rebalanceTx}
+              variant="secondary"
+              label="Rebalance now"
+              disabled={!offTarget || !m.account}
+              hint={
+                target === undefined || target === 0n
+                  ? "No target set on this market."
+                  : offTarget
+                    ? "Borrows more or repays to get back to your level."
+                    : `Already on target, inside the ${fmtBps(bandBps, 0)} band.`
+              }
+              onClick={() =>
+                rebalanceTx.send({address: m.account!, abi: accountAbi, functionName: "rebalance", args: [m.adapter]})
+              }
+            />
+            <TxButton
+              tx={compoundTx}
+              variant="secondary"
+              label="Compound yield into stock"
+              disabled={!canCompound}
+              hint={
+                !testDex
+                  ? "Needs an allowlisted swap venue on this network."
+                  : canCompound
+                    ? `Buys ${m.symbol ?? m.stock.wrapper} with the ${fmtUsd(compoundable)} of yield above the debt.`
+                    : "No surplus above the debt yet."
+              }
+              onClick={compound}
+            />
+          </div>
+        </div>
+      )}
 
       {has ? (
         <div className="mt-4 grid grid-cols-2 gap-3">

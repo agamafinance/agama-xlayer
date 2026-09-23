@@ -1138,6 +1138,19 @@ export const accountAbi = [
   },
   {
     "type": "function",
+    "name": "REBALANCE_BAND_BPS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "SOFT_TARGET_HF",
     "inputs": [],
     "outputs": [
@@ -1271,6 +1284,50 @@ export const accountAbi = [
     "name": "autoUnwind",
     "inputs": [],
     "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "compoundIntoStock",
+    "inputs": [
+      {
+        "name": "stockAdapter",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "usdgIn",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "swapTarget",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "swapSpender",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "swapData",
+        "type": "bytes",
+        "internalType": "bytes"
+      },
+      {
+        "name": "minStockOut",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "stockAdded",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
     "stateMutability": "nonpayable"
   },
   {
@@ -1478,6 +1535,25 @@ export const accountAbi = [
   },
   {
     "type": "function",
+    "name": "rebalance",
+    "inputs": [
+      {
+        "name": "stockAdapter",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "debtDelta",
+        "type": "int256",
+        "internalType": "int256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "redeemableUsdg",
     "inputs": [],
     "outputs": [
@@ -1520,6 +1596,25 @@ export const accountAbi = [
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "targetLtvBps",
+    "inputs": [
+      {
+        "name": "adapter",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "event",
@@ -1610,6 +1705,37 @@ export const accountAbi = [
   },
   {
     "type": "event",
+    "name": "CompoundedIntoStock",
+    "inputs": [
+      {
+        "name": "caller",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "adapter",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "usdgSpent",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "stockAdded",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "EarnClosed",
     "inputs": [
       {
@@ -1666,6 +1792,37 @@ export const accountAbi = [
   },
   {
     "type": "event",
+    "name": "Rebalanced",
+    "inputs": [
+      {
+        "name": "caller",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "adapter",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "debtDelta",
+        "type": "int256",
+        "indexed": false,
+        "internalType": "int256"
+      },
+      {
+        "name": "ltvBpsAfter",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "SoftDeleveraged",
     "inputs": [
       {
@@ -1702,6 +1859,22 @@ export const accountAbi = [
   },
   {
     "type": "error",
+    "name": "AlreadyOnTarget",
+    "inputs": [
+      {
+        "name": "ltvBps",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "targetBps",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "HealthFactorOk",
     "inputs": [
       {
@@ -1730,6 +1903,11 @@ export const accountAbi = [
   {
     "type": "error",
     "name": "NotAuthorized",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NothingToCompound",
     "inputs": []
   },
   {
@@ -1775,6 +1953,44 @@ export const accountAbi = [
       },
       {
         "name": "vaultApyRay",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "SwapFailed",
+    "inputs": [
+      {
+        "name": "reason",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "SwapTargetNotAllowed",
+    "inputs": [
+      {
+        "name": "target",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "TooLittleStockBought",
+    "inputs": [
+      {
+        "name": "got",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "minOut",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -2079,6 +2295,19 @@ export const accountFactoryAbi = [
   },
   {
     "type": "function",
+    "name": "setZapRouter",
+    "inputs": [
+      {
+        "name": "zap",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "supportsInterface",
     "inputs": [
       {
@@ -2092,6 +2321,19 @@ export const accountFactoryAbi = [
         "name": "",
         "type": "bool",
         "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "zapRouter",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "stateMutability": "view"
@@ -2205,6 +2447,19 @@ export const accountFactoryAbi = [
         "type": "bool",
         "indexed": false,
         "internalType": "bool"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ZapRouterSet",
+    "inputs": [
+      {
+        "name": "zap",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
       }
     ],
     "anonymous": false
@@ -13108,6 +13363,22 @@ export const allErrorsAbi = [
   },
   {
     "type": "error",
+    "name": "AlreadyOnTarget",
+    "inputs": [
+      {
+        "name": "ltvBps",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "targetBps",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "HealthFactorOk",
     "inputs": [
       {
@@ -13136,6 +13407,11 @@ export const allErrorsAbi = [
   {
     "type": "error",
     "name": "NotAuthorized",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NothingToCompound",
     "inputs": []
   },
   {
@@ -13170,6 +13446,44 @@ export const allErrorsAbi = [
       },
       {
         "name": "vaultApyRay",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "SwapFailed",
+    "inputs": [
+      {
+        "name": "reason",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "SwapTargetNotAllowed",
+    "inputs": [
+      {
+        "name": "target",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "TooLittleStockBought",
+    "inputs": [
+      {
+        "name": "got",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "minOut",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -13887,17 +14201,6 @@ export const allErrorsAbi = [
         "name": "spender",
         "type": "address",
         "internalType": "address"
-      }
-    ]
-  },
-  {
-    "type": "error",
-    "name": "SwapFailed",
-    "inputs": [
-      {
-        "name": "reason",
-        "type": "bytes",
-        "internalType": "bytes"
       }
     ]
   },

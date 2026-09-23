@@ -6,6 +6,7 @@ import {useReadContract, useReadContracts} from "wagmi";
 import type {AppChainId} from "./chains";
 import type {Deployment} from "./deployment-types";
 import {
+  accountAbi,
   earnRouterAbi,
   lendingPoolAbi,
   stockOracleAbi,
@@ -108,6 +109,20 @@ export function useStockMarket(d: Deployment | undefined, s: Stock, user: Addres
     query: {enabled: !!base},
   });
 
+  // Per-account state the agents work from: the level the owner picked and the
+  // USDG the vault shares can pay out right now.
+  const accountAddr = (data?.[9]?.result as EarnPosition | undefined)?.account;
+  const account = accountAddr && accountAddr !== zeroAddress ? accountAddr : undefined;
+  const {data: agentData} = useReadContracts({
+    allowFailure: true,
+    contracts: [
+      {address: account ?? zeroAddress, abi: accountAbi, functionName: "targetLtvBps", args: [adapter], chainId},
+      {address: account ?? zeroAddress, abi: accountAbi, functionName: "redeemableUsdg", chainId},
+      {address: account ?? zeroAddress, abi: accountAbi, functionName: "REBALANCE_BAND_BPS", chainId},
+    ],
+    query: {enabled: !!account},
+  });
+
   const feed = data?.[1]?.result as Feed | undefined;
   const position = user ? (data?.[9]?.result as EarnPosition | undefined) : undefined;
   const hasPosition = !!position && (position.collateral > 0n || position.debt > 0n);
@@ -132,6 +147,12 @@ export function useStockMarket(d: Deployment | undefined, s: Stock, user: Addres
     loaded: !!data,
     /// On-chain symbol of the wrapper (falls back to the deployment name).
     symbol: data?.[10]?.result ?? s.wrapper,
+    account,
+    /// LTV the owner picked at open: the level the agents keep the position at.
+    targetLtvBps: agentData?.[0]?.result,
+    /// USDG the free vault shares can pay out now (buffer + accrued yield).
+    redeemableUsdg: agentData?.[1]?.result,
+    rebalanceBandBps: agentData?.[2]?.result,
     /// Base xStock: what an OKX withdrawal delivers, what an OKX deposit takes.
     base,
     baseSymbol: baseData?.[0]?.result,
