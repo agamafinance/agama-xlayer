@@ -307,10 +307,34 @@ export default function XLayerEarnPage() {
               <h2 className="text-[17px] font-semibold text-fg">Your position</h2>
 
               {!has ? (
-                <p className="mt-4 text-[14px] text-fg-muted">
-                  No position yet. Deposit a stock: the USDG borrowed against it goes into the Agama vault
-                  and stays in your account as the buffer that protects the stock.
-                </p>
+                <>
+                  <p className="mt-4 text-[14px] text-fg-muted">
+                    No position yet. Deposit a stock: the USDG borrowed against it goes into the Agama vault
+                    and stays in your account as the buffer that protects the stock.
+                  </p>
+                  <ol className="mt-5 space-y-3">
+                    {[
+                      ['Withdraw your stock from the OKX app to X Layer',
+                       `It arrives as ${symbol || 'the base xStock'}, not the ERC-4626 wrapper lending markets take. This one takes it as it comes.`],
+                      ['Deposit it here and pick one level',
+                       'The protocol borrows USDG against it and puts that USDG to work in the Agama private-credit vault.'],
+                      ['Then nothing',
+                       'Agents hold the position at your level as the stock moves, and buy back more stock with the yield. You never have to come back.'],
+                      ['Leave whenever',
+                       'Closing repays from the vault shares and hands you the token an OKX deposit accepts.'],
+                    ].map(([title, body], i) => (
+                      <li key={title} className="flex gap-3">
+                        <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#254839] text-[12px] font-medium text-[#fdf8ed]">
+                          {i + 1}
+                        </span>
+                        <span>
+                          <span className="block text-[14px] text-fg">{title}</span>
+                          <span className="block text-[13px] text-fg-muted">{body}</span>
+                        </span>
+                      </li>
+                    ))}
+                  </ol>
+                </>
               ) : (
                 <>
                   <div className="mt-4 flex flex-wrap gap-8">
