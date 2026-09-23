@@ -8,6 +8,7 @@ import {ConnectPill} from "./ConnectPill";
 import {FaucetButton} from "./FaucetButton";
 import {NetworkPill} from "./NetworkPill";
 import {TestnetFaucetButton} from "./TestnetFaucet";
+import {withBase} from "@/lib/base-path";
 
 const NAV = [
   {href: "/", label: "Earn"},
@@ -22,7 +23,7 @@ export function Header() {
     <header className="border-b border-white/10 bg-forest-deep/60">
       <div className="mx-auto flex w-full max-w-[1180px] flex-wrap items-center gap-x-6 gap-y-3 px-4 py-3 md:px-6">
         <Link href="/" className="flex shrink-0 flex-col gap-1.5" aria-label="Agama home">
-          <img src="/agama-logo-beige.svg" alt="Agama" className="h-[24px] w-auto self-start" />
+          <img src={withBase("/agama-logo-beige.svg")} alt="Agama" className="h-[24px] w-auto self-start" />
           <span className="text-2xs text-mute">Lending by Arrow Finance, deployed on X Layer by Agama</span>
         </Link>
 

@@ -22,6 +22,7 @@ import {
 import {earnRouterAbi, zapRouterAbi} from "@/lib/generated/abis";
 import {approve, useAllowance, useTokenBalance, type StockMarket} from "@/lib/hooks";
 import {useTx} from "@/lib/tx";
+import {withBase} from "@/lib/base-path";
 
 const testDexAbi = parseAbi(["function swap(address wrapper, uint256 usdgIn, uint256 priceUsdg6) returns (uint256 out)"]);
 
@@ -40,7 +41,7 @@ type ZapSwap = {
 };
 
 async function zapApi<T>(body: Record<string, unknown>): Promise<T> {
-  const res = await fetch("/api/zap", {
+  const res = await fetch(withBase("/api/zap"), {
     method: "POST",
     headers: {"content-type": "application/json"},
     body: JSON.stringify(body),

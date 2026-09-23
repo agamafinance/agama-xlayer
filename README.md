@@ -13,7 +13,7 @@
 
 Built for OKX Dev Day 2026, track **Build a Market** (tokenized stocks and RWA on X Layer).
 
-**Live app (X Layer testnet):** https://agama-xlayer.vercel.app (the "Get test tokens" button mints test USDG and xStocks; test OKB for gas at https://web3.okx.com/xlayer/faucet).
+**Live app (X Layer testnet):** https://app.agama.finance/xlayer (the "Get test tokens" button mints test USDG and xStocks; test OKB for gas at https://web3.okx.com/xlayer/faucet).
 
 ## Why X Layer
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """UI end-to-end test of the LIVE app against X Layer testnet, with a real signer.
 
-    python3 scripts/ui_e2e.py [base_url]     # default https://agama-xlayer.vercel.app
+    python3 scripts/ui_e2e.py [base_url]     # default https://app.agama.finance/xlayer
 
 A headless Chromium opens the app with an injected EIP-1193 wallet. Reads go to
 the testnet RPC; `eth_sendTransaction` is signed and broadcast by `cast` with a
@@ -25,7 +25,7 @@ import urllib.request
 from playwright.async_api import async_playwright
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-BASE = sys.argv[1] if len(sys.argv) > 1 else "https://agama-xlayer.vercel.app"
+BASE = sys.argv[1] if len(sys.argv) > 1 else "https://app.agama.finance/xlayer"
 RPC = "https://testrpc.xlayer.tech/terigon"
 CHAIN_HEX = hex(1952)
 OUT = os.path.join(os.path.dirname(ROOT), "agama-xlayer-local", "ui-e2e")

@@ -5,6 +5,7 @@ import {useState} from "react";
 import {useAccount, useChainId} from "wagmi";
 
 import {FORK_ID} from "@/lib/chains";
+import {withBase} from "@/lib/base-path";
 
 type State = {kind: "idle"} | {kind: "busy"} | {kind: "ok"; text: string} | {kind: "err"; text: string};
 
@@ -21,7 +22,7 @@ export function FaucetButton() {
   const run = async () => {
     setState({kind: "busy"});
     try {
-      const res = await fetch("/api/faucet", {
+      const res = await fetch(withBase("/api/faucet"), {
         method: "POST",
         headers: {"content-type": "application/json"},
         body: JSON.stringify({address}),
