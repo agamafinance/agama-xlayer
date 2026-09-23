@@ -59,6 +59,11 @@ contract AgamaAccount is ReentrancyGuard {
     uint256 internal constant MAX_LOOPS = 24;
     /// @notice Drift around the target LTV the agents tolerate before acting.
     uint256 public constant REBALANCE_BAND_BPS = 100;
+    /// @notice Worst execution a compound may accept, measured against the same
+    ///         oracle price the pool uses for the collateral. The caller is not
+    ///         the owner, so the owner's protection cannot be the caller's own
+    ///         `minStockOut`: a griefer would simply pass 1.
+    uint256 public constant MAX_COMPOUND_SLIPPAGE_BPS = 300;
 
     IArrowPool public immutable POOL;
     IERC20 public immutable USDG;
@@ -106,6 +111,7 @@ contract AgamaAccount is ReentrancyGuard {
     error SwapTargetNotAllowed(address target);
     error SwapFailed(bytes reason);
     error TooLittleStockBought(uint256 got, uint256 minOut);
+    error CompoundPriceTooBad(uint256 valueAdded, uint256 floor);
     error InsufficientToRepay(uint256 shortfall);
 
     constructor(IArrowPool pool, IagUSDQueue queue, IERC4626 vault, ArrowVaultShareAdapter vaultAdapter) {
@@ -319,6 +325,13 @@ contract AgamaAccount is ReentrancyGuard {
 
         stockAdded = stock.balanceOf(address(this)) - before;
         if (stockAdded < minStockOut) revert TooLittleStockBought(stockAdded, minStockOut);
+
+        // `minStockOut` comes from whoever called the agent, which is anybody.
+        // The owner's real protection is this: what came back has to be worth,
+        // at the pool's own price, nearly what was spent.
+        uint256 valueAdded = IArrowAdapter(stockAdapter).valueOf(stockAdded);
+        uint256 floor = (spend * (BPS - MAX_COMPOUND_SLIPPAGE_BPS)) / BPS;
+        if (valueAdded < floor) revert CompoundPriceTooBad(valueAdded, floor);
 
         stock.forceApprove(stockAdapter, stockAdded);
         POOL.depositAsset(stockAdapter, abi.encode(stockAdded));

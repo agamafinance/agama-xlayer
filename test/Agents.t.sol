@@ -84,6 +84,9 @@ contract AgentsForkTest is BaseFork {
         _settleYield(200e6); // the vault earns
         _warp(20 days); // let the CAPO ceiling catch up with the settled yield
         d.vaultAdapter.snapshot();
+        // Compounding prices the stock it bought against the oracle, so the feed
+        // has to be live: twenty days of warping made it stale.
+        _pushAll(true);
 
         uint256 profit = acct.redeemableUsdg() - d.earn.position(alice, address(d.tsla)).debt;
         assertGt(profit, 1e6, "there is yield to compound");
@@ -97,6 +100,28 @@ contract AgentsForkTest is BaseFork {
         assertEq(d.tsla.balanceOf(address(acct)), stockBefore + added, "and it became collateral");
         // The user's stock grew: that is the whole promise.
         assertGt(d.earn.position(alice, address(d.tsla)).collateral, 10e18);
+    }
+
+    function test_compoundRefusesABadPriceEvenIfTheCallerAsksForIt() public {
+        _openEarn(alice, 10e18, 2_500);
+        AgamaAccount acct = _account(alice);
+        _settleYield(200e6);
+        _warp(20 days);
+        d.vaultAdapter.snapshot();
+        _pushAll(true);
+
+        // A router that pays a third of the going rate, and a caller who says
+        // that is fine by passing a floor of 1. The account is not theirs.
+        MockDexRouter bad = new MockDexRouter(usdg, wtsla, uint256(1e18) * 1e6 / 1_260e6);
+        deal(W_TSLAX, address(bad), 100e18);
+        d.zap.setTarget(address(bad), true);
+        d.zap.setSpender(address(bad), true);
+
+        uint256 profit = acct.redeemableUsdg() - d.earn.position(alice, address(d.tsla)).debt;
+        bytes memory swapData = abi.encodeCall(MockDexRouter.swap, (profit));
+        vm.prank(liquidator);
+        vm.expectPartialRevert(AgamaAccount.CompoundPriceTooBad.selector);
+        acct.compoundIntoStock(address(d.tsla), profit, address(bad), address(bad), swapData, 1);
     }
 
     function test_compoundNeverEatsTheBufferThatProtectsTheStock() public {
