@@ -1,19 +1,28 @@
+import {dirname} from 'node:path';
+import {fileURLToPath} from 'node:url';
+
+const root = dirname(fileURLToPath(import.meta.url));
+
+// This deployment is reached through app.agama.finance/xlayer, which rewrites
+// that path here. The pages live at /xlayer so the rewrite is a straight pass
+// through, but the assets would land on app.agama.finance/_next and collide
+// with the product app's own bundle. Serving them from this deployment's own
+// origin keeps the two apart.
+const assetPrefix = process.env.NEXT_PUBLIC_ASSET_PREFIX || undefined;
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  // The runtime is verified in dev across all routes; skip strict build gates so
-  // dapp-kit/@mysten type-version mismatches don't block the v1 deploy.
+  // Inherited from the app this is forked from: dapp-kit and @mysten ship
+  // mismatched types across packages, and blocking the build on them would
+  // stop work that has nothing to do with them.
   eslint: { ignoreDuringBuilds: true },
   typescript: { ignoreBuildErrors: true },
-  // app.agama.finance/xlayer serves the OKX Dev Day build, which lives in its
-  // own Vercel project. It sets basePath "/xlayer", so its routes and assets
-  // already carry the prefix and nothing collides with this app's /_next.
-  async rewrites() {
-    return [
-      { source: '/xlayer', destination: 'https://agama-xlayer.vercel.app/xlayer' },
-      { source: '/xlayer/:path*', destination: 'https://agama-xlayer.vercel.app/xlayer/:path*' },
-    ];
-  },
+  assetPrefix,
+  // The Foundry repo sits one level up and has its own lockfile; pin the root
+  // so Next does not walk up and pick it.
+  outputFileTracingRoot: root,
+  turbopack: { root },
   async headers() {
     return [
       {

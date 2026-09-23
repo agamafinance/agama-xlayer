@@ -15,6 +15,7 @@ import { SuiProviders } from '@/lib/sui/SuiProviders';
 import { RobinhoodWalletProvider } from '@/lib/robinhood/WalletProvider';
 import { StarknetWalletProvider } from '@/lib/starknet/WalletProvider';
 import { SolanaWalletProvider } from '@/lib/magicblock/WalletProvider';
+import { XLayerWalletProvider } from '@/lib/xlayer/WalletProvider';
 import WalletModal from '@/components/magicblock/WalletModal';
 
 import '@rainbow-me/rainbowkit/styles.css';
@@ -31,6 +32,7 @@ export function Providers({ children }: { children: ReactNode }) {
             <SuiProviders>
              <StarknetWalletProvider>
              <SolanaWalletProvider>
+             <XLayerWalletProvider>
              <RobinhoodWalletProvider>
              <RainbowKitProvider
               theme={lightTheme({
@@ -47,6 +49,7 @@ export function Providers({ children }: { children: ReactNode }) {
               {children}
              </RainbowKitProvider>
              </RobinhoodWalletProvider>
+             </XLayerWalletProvider>
              </SolanaWalletProvider>
              </StarknetWalletProvider>
             </SuiProviders>

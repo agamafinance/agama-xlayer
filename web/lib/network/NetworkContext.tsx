@@ -3,7 +3,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { usePathname } from 'next/navigation';
 
-export type Platform = 'evm' | 'stellar' | 'arbitrum' | 'sui' | 'robinhood' | 'starknet' | 'magicblock';
+export type Platform = 'evm' | 'stellar' | 'arbitrum' | 'sui' | 'robinhood' | 'starknet' | 'magicblock' | 'xlayer';
 
 const KEY = 'agama.platform';
 
@@ -31,6 +31,8 @@ export function NetworkProvider({ children }: { children: ReactNode }) {
           ? 'starknet'
         : pathname?.startsWith('/magicblock')
           ? 'magicblock'
+        : pathname?.startsWith('/xlayer')
+          ? 'xlayer'
           : 'evm'
   );
 
@@ -43,7 +45,8 @@ export function NetworkProvider({ children }: { children: ReactNode }) {
       pathname?.startsWith('/sui') ||
       pathname?.startsWith('/robinhood') ||
       pathname?.startsWith('/starknet') ||
-      pathname?.startsWith('/magicblock')
+      pathname?.startsWith('/magicblock') ||
+      pathname?.startsWith('/xlayer')
     )
       return;
     const saved = window.localStorage.getItem(KEY);
@@ -54,7 +57,8 @@ export function NetworkProvider({ children }: { children: ReactNode }) {
       saved === 'sui' ||
       saved === 'robinhood' ||
       saved === 'starknet' ||
-      saved === 'magicblock'
+      saved === 'magicblock' ||
+      saved === 'xlayer'
     )
       setPlatformState(saved);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -68,6 +72,7 @@ export function NetworkProvider({ children }: { children: ReactNode }) {
     else if (pathname?.startsWith('/robinhood')) setPlatformState('robinhood');
     else if (pathname?.startsWith('/starknet')) setPlatformState('starknet');
     else if (pathname?.startsWith('/magicblock')) setPlatformState('magicblock');
+    else if (pathname?.startsWith('/xlayer')) setPlatformState('xlayer');
   }, [pathname]);
 
   const setPlatform = (p: Platform) => {

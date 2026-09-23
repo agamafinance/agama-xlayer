@@ -12,6 +12,7 @@ import { SuiConnectPill } from './SuiConnectPill';
 import { RobinhoodConnectPill } from './RobinhoodConnectPill';
 import { StarknetConnectPill } from './StarknetConnectPill';
 import { MagicBlockConnectPill } from './MagicBlockConnectPill';
+import { XLayerConnectPill } from './XLayerConnectPill';
 import { useNetwork, type Platform } from '@/lib/network/NetworkContext';
 
 const NAV: Record<Platform, { href: string; label: string }[]> = {
@@ -47,9 +48,17 @@ const NAV: Record<Platform, { href: string; label: string }[]> = {
     { href: '/magicblock/faucet', label: 'Faucet' },
   ],
   robinhood: [],
+  xlayer: [
+    { href: '/xlayer/portfolio', label: 'Portfolio' },
+    { href: '/xlayer', label: 'Earn' },
+    { href: '/xlayer/amplify', label: 'Amplify' },
+    { href: '/xlayer/lend', label: 'Lend' },
+    { href: '/xlayer/faucet', label: 'Faucet' },
+  ],
 };
 
 const NETWORKS: { id: Platform; label: string; logo: string; home: string }[] = [
+  { id: 'xlayer', label: 'X Layer', logo: '/xlayer.svg', home: '/xlayer' },
   { id: 'magicblock', label: 'MagicBlock', logo: '/magicblock.png', home: '/magicblock' },
   { id: 'starknet', label: 'Starknet', logo: '/starknet.svg', home: '/starknet' },
   { id: 'sui', label: 'Sui', logo: '/sui.svg', home: '/sui' },
@@ -146,7 +155,7 @@ export function Navbar() {
                           <img src={n.logo} alt={n.label} className="h-[22px] w-[22px] object-cover" />
                         </span>
                         <span className="truncate">{n.label}</span>
-                        {(n.id === 'stellar' || n.id === 'sui' || n.id === 'robinhood' || n.id === 'starknet' || n.id === 'magicblock') && (
+                        {(n.id === 'stellar' || n.id === 'sui' || n.id === 'robinhood' || n.id === 'starknet' || n.id === 'magicblock' || n.id === 'xlayer') && (
                           <span className="ml-auto text-[10px] uppercase tracking-wide opacity-70">
                             testnet
                           </span>
@@ -170,6 +179,8 @@ export function Navbar() {
               <StarknetConnectPill />
             ) : platform === 'magicblock' ? (
               <MagicBlockConnectPill />
+            ) : platform === 'xlayer' ? (
+              <XLayerConnectPill />
             ) : (
               <ConnectPill />
             )}
