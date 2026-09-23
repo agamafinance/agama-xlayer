@@ -40,7 +40,8 @@ def num(s):
 
 
 def ensure_prices():
-    """A fresh fork has an empty oracle: relay Chainlink prices once."""
+    """A fresh fork has an empty oracle: RedStone signs TSLA/NVDA/AAPL, the
+    relay carries SPY."""
     feed = cast("call", C["oracle"], "feed(bytes32)((uint128,uint64,bool,bool))",
                 "0x" + b"TSLA".hex().ljust(64, "0"))
     if int(feed.strip("()").split(", ")[0].split()[0]) > 0:
@@ -48,7 +49,7 @@ def ensure_prices():
     env = dict(os.environ, RPC_URL=RPC, DEPLOYMENT=os.path.join(ROOT, "deployments",
                os.environ.get("DEPLOY_FILE", "196-fork.json")),
                KEEPER_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
-               ONCE="1", JOBS="prices")
+               ONCE="1", JOBS="redstone,prices")
     out = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "keeper.py")], env=env,
                          capture_output=True, text=True)
     print("   keeper |", out.stdout.strip().splitlines()[-1] if out.stdout.strip() else out.stderr[-200:])

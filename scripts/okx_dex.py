@@ -8,7 +8,7 @@ The OKX edge rejects some HTTP clients, so requests go through curl.
     python3 scripts/okx_dex.py approve <token> <amount>
     python3 scripts/okx_dex.py swap   <fromToken> <toToken> <amount> <wallet> [slippage]
 """
-import base64, hashlib, hmac, json, os, subprocess, sys, urllib.parse
+import base64, hashlib, hmac, json, os, subprocess, sys, time, urllib.parse
 from datetime import datetime, timezone
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -33,6 +33,20 @@ def env():
 def get(path, params):
     e = env()
     full = path + "?" + urllib.parse.urlencode(params)
+    # The OKX edge is CloudFront-fronted and throttles bursts with an HTML 403:
+    # back off and retry rather than failing the caller.
+    for attempt in range(5):
+        body = _curl(full, e, ts_headers=None)
+        if isinstance(body, dict):
+            if body.get("code") in ("0", 0):
+                return body["data"]
+            raise RuntimeError(f"OKX DEX API: {body.get('code')} {body.get('msg')}")
+        if attempt == 4:
+            raise RuntimeError(f"OKX DEX API: edge refused the request ({body[:80]})")
+        time.sleep(2 + 3 * attempt)
+
+
+def _curl(full, e, ts_headers=None):
     now = datetime.now(timezone.utc)
     ts = now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
     sign = base64.b64encode(
@@ -43,11 +57,12 @@ def get(path, params):
                         "-H", f"OK-ACCESS-SIGN: {sign}",
                         "-H", f"OK-ACCESS-TIMESTAMP: {ts}",
                         "-H", f"OK-ACCESS-PASSPHRASE: {e['OKX_PASSPHRASE']}",
-                        "-H", "Content-Type: application/json"], capture_output=True, text=True)
-    body = json.loads(r.stdout)
-    if body.get("code") not in ("0", 0):
-        raise RuntimeError(f"OKX DEX API: {body.get('code')} {body.get('msg')}")
-    return body["data"]
+                        "-H", "Content-Type: application/json",
+                        "-H", "User-Agent: agama-xlayer/1.0"], capture_output=True, text=True)
+    try:
+        return json.loads(r.stdout)
+    except json.JSONDecodeError:
+        return r.stdout
 
 
 def quote(from_token, to_token, amount):
