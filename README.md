@@ -205,6 +205,16 @@ python3 scripts/zap_check.py 200
 
 Two things we learned doing it, both handled in the code: the aggregator's JIT routes are signed per wallet and expire within seconds, so the zap pins AMM routes with `dexIds`; and those market-maker signatures are bound to chain 196, so a fork must keep that chain id.
 
+The agents go through the same aggregator, and that is the one path the testnet cannot prove: there the swap venue is a stand-in priced at our own oracle, so it can never disagree with us. `scripts/compound_check.py` spends real vault yield into the real xStock liquidity, with the agent run by a wallet that owns nothing:
+
+```bash
+python3 scripts/compound_check.py 5000
+# surplus 4495.50 USDG -> 11.817595 wTSLAx worth 4492.95, 0.05% off the oracle, 770,563 gas
+# and at 450 USDG: 0.05% the other way, better than the oracle
+```
+
+That is what calibrates the 3% floor in `MAX_COMPOUND_SLIPPAGE_BPS`: real execution sits two orders of magnitude inside it, so the floor blocks abuse without blocking the product.
+
 ## Oracle: how prices reach X Layer
 
 X Layer has no equity price a contract can read, so the oracle is part of the product. Three write paths, one contract, in order of trust:
