@@ -225,14 +225,28 @@ async def main():
         await page.reload()
         await page.wait_for_timeout(5000)
 
-        step("4. Earn: 2 wTSLAx at 25% LTV")
+        step("4. Earn: the OKX rail (base token) is the default, then the wrapped one")
+        body = await page.locator("section[aria-labelledby=ticket-title], form, main").first.inner_text()
+        ok("From OKX" in body, "the deposit card offers the token an OKX withdrawal sends")
         await page.fill("#earn-amount", "2")
         await page.wait_for_timeout(2500)
         await shot(page, "02-earn-ticket")
-        await click_tx(page, "Approve wTSLAx")
+        # Holding base tokens and no position, the app preselects "From OKX".
+        await click_tx(page, "Approve TSLAx")
         await click_tx(page, "Open position")
+        shown = await wait_text(page, "section[aria-labelledby=pos-title]",
+                                lambda t: "No wTSLAx position yet" not in t)
+        ok(shown, "position opened straight from the OKX token")
+
+        # Same card, wrapped token this time.
+        await page.get_by_text(re.compile(r"Wrapped \(w?t?TSLAx\)")).first.click()
+        await page.wait_for_timeout(1500)
+        await page.fill("#earn-amount", "2")
+        await page.wait_for_timeout(2000)
+        await click_tx(page, "Approve wTSLAx")
+        await click_tx(page, "Add and borrow")
         shown = await wait_text(page, "section[aria-labelledby=pos-title]", lambda t: "No wTSLAx position yet" not in t)
-        ok(shown, "Earn position shown (collateral, debt, health factor)")
+        ok(shown, "position carries both deposits (collateral, debt, health factor)")
         await shot(page, "03-earn-position")
 
         step("5. Buy and Earn: 200 USDG buys the stock and opens the position")
@@ -268,7 +282,9 @@ async def main():
         await page.goto(BASE + "/")
         await page.wait_for_timeout(6000)
         sec = page.locator("section[aria-labelledby=pos-title]")
-        btn = sec.locator("button").filter(has_text="Close")
+        btn = sec.locator("button").filter(has_text=re.compile(r"Close to .?TSLAx"))
+        if await btn.count() == 0:
+            btn = sec.locator("button").filter(has_text="Close")
         label = await btn.first.inner_text()
         await btn.first.click()
         t0 = time.time()
@@ -281,7 +297,7 @@ async def main():
             if await sec.locator("[role=alert]").count() > 0:
                 raise SystemExit("   FAIL: close: " + await sec.locator("[role=alert]").first.inner_text())
             await page.wait_for_timeout(800)
-        ok(closed, f"Earn closed via '{label.strip()}', stock back in the wallet")
+        ok(closed, f"Earn closed via '{label.strip()}': the stock comes back in the form an OKX deposit takes")
         await shot(page, "06-earn-closed")
 
         step("9. Arrow: supply then withdraw 100 USDG")

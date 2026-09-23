@@ -24,6 +24,7 @@ import {
   fmtUsd,
   hfToNumber,
   parseAmount,
+  toInput,
 } from "@/lib/format";
 import {accountAbi, earnRouterAbi} from "@/lib/generated/abis";
 import {
@@ -298,8 +299,7 @@ function Ticket({
   // lands as the BASE token: accept either and wrap on the way in.
   const [picked, setPicked] = useState<"wrapper" | "base" | null>(null);
   const holdsBase = (m.baseBalance ?? 0n) > 0n;
-  const holdsWrapper = (m.balance ?? 0n) > 0n;
-  const useBase = picked === null ? !holdsWrapper && holdsBase : picked === "base";
+  const useBase = picked === null ? holdsBase && !m.hasPosition : picked === "base";
   const inputToken = useBase ? m.base : m.token;
   const inputSymbol = (useBase ? m.baseSymbol : m.symbol) ?? m.stock.wrapper;
   const inputBalance = useBase ? m.baseBalance : m.balance;
@@ -356,7 +356,7 @@ function Ticket({
     <section className="panel p-5" aria-labelledby="ticket-title">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 id="ticket-title" className="text-md text-white">
-          Deposit {m.symbol ?? m.stock.wrapper}
+          Deposit {inputSymbol}
         </h2>
         <div className="flex items-center gap-3">
           <Pill tone={st.tone} title={st.title}>
@@ -374,35 +374,53 @@ function Ticket({
 
       <div className="mt-4 space-y-3">
         {m.base && (
-          <div className="flex flex-wrap items-center gap-2 text-sm">
-            <span className="text-mute">Deposit</span>
-            <div className="pill-bar flex rounded-full p-0.5" role="radiogroup" aria-label="Token to deposit">
-              {(
-                [
-                  ["wrapper", `Wrapped (${m.symbol ?? m.stock.wrapper})`, m.balance],
-                  ["base", `From OKX (${m.baseSymbol ?? "base"})`, m.baseBalance],
-                ] as const
-              ).map(([id, label, bal]) => (
-                <button
-                  key={id}
-                  type="button"
-                  role="radio"
-                  aria-checked={useBase === (id === "base")}
-                  onClick={() => {
-                    setPicked(id);
-                    setAmountStr("");
-                  }}
-                  className={clsx(
-                    "whitespace-nowrap rounded-full px-3 py-1",
-                    useBase === (id === "base") ? "bg-white/[0.14] text-white" : "text-mute hover:text-white",
-                  )}
-                >
-                  {label}
-                  <span className="ml-1.5 text-2xs text-dim">{fmt(bal, STOCK_DECIMALS, 2)}</span>
-                </button>
+          <>
+            <ol className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-xs text-mute">
+              {[
+                "Withdraw your stock from the OKX app to X Layer",
+                `It arrives as ${m.baseSymbol ?? "the base xStock"}`,
+                "Deposit it here in one transaction",
+              ].map((stepText, i) => (
+                <li key={stepText} className="flex items-baseline gap-1.5">
+                  <span className="text-white">{i + 1}.</span>
+                  {stepText}
+                </li>
               ))}
+              {chainId === TESTNET_ID && (
+                <li className="text-dim">On testnet, Get test tokens stands in for the OKX withdrawal.</li>
+              )}
+            </ol>
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              <span className="text-mute">Deposit</span>
+              <div className="pill-bar flex rounded-full p-0.5" role="radiogroup" aria-label="Token to deposit">
+                {(
+                  [
+                    ["wrapper", `Wrapped (${m.symbol ?? m.stock.wrapper})`, m.balance, null],
+                    ["base", `From OKX (${m.baseSymbol ?? "base"})`, m.baseBalance, "OKX withdrawal"],
+                  ] as const
+                ).map(([id, label, bal, tag]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    role="radio"
+                    aria-checked={useBase === (id === "base")}
+                    onClick={() => {
+                      setPicked(id);
+                      setAmountStr("");
+                    }}
+                    className={clsx(
+                      "whitespace-nowrap rounded-full px-3 py-1",
+                      useBase === (id === "base") ? "bg-white/[0.14] text-white" : "text-mute hover:text-white",
+                    )}
+                  >
+                    {label}
+                    <span className="ml-1.5 text-2xs text-dim">{fmt(bal, STOCK_DECIMALS, 2)}</span>
+                    {tag && <span className="ml-1.5 text-2xs text-dim">{tag}</span>}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          </>
         )}
         <AmountField
           id="earn-amount"
@@ -422,6 +440,18 @@ function Ticket({
                   : undefined
           }
         />
+        {useBase && holdsBase && !m.hasPosition && amountStr === "" && (
+          <p className="text-xs text-mute">
+            You hold {fmt(m.baseBalance, STOCK_DECIMALS, 2)} {m.baseSymbol ?? "base xStock"} from OKX. Put it to work.
+            <button
+              type="button"
+              onClick={() => setAmountStr(toInput(m.baseBalance!, STOCK_DECIMALS, 8))}
+              className="ml-2 rounded-md px-1.5 py-0.5 text-mint hover:bg-mint/10"
+            >
+              Max
+            </button>
+          </p>
+        )}
         <Slider
           id="earn-ltv"
           label="Borrow against it (LTV)"
@@ -435,13 +465,6 @@ function Ticket({
           maxLabel={`${maxLtvPct.toFixed(0)}% max`}
         />
       </div>
-
-      {m.base && (
-        <p className="mt-2 text-xs leading-relaxed text-mute">
-          Withdrew your stock from the OKX app to X Layer? It arrives as {m.baseSymbol ?? "the base xStock"}, deposit it
-          directly here.
-        </p>
-      )}
 
       <div className="mt-4">
         <Row
@@ -664,8 +687,8 @@ function PositionPanel({
             variant="secondary"
             label={
               needsTopUp
-                ? `Close to ${m.baseSymbol ?? "base"}, add ${fmt(shortfall, USDG_DECIMALS, 2)} USDG`
-                : `Close to ${m.baseSymbol ?? "the base token"} (for OKX)`
+                ? `Close to ${m.baseSymbol ?? "base"} (for OKX), add ${fmt(shortfall, USDG_DECIMALS, 2)} USDG`
+                : `Close to ${m.baseSymbol ?? "the base token"} (send back to OKX)`
             }
             disabled={!m.base || lacksUsdg}
             title={`${m.baseSymbol ?? "The base xStock"} is the token an OKX deposit accepts.`}
@@ -692,6 +715,12 @@ function PositionPanel({
         <p className="mt-4 text-sm text-mute">
           No {m.symbol ?? m.stock.wrapper} position yet. Deposit on the left: the USDG you borrow lands in the Agama vault and stays in
           your account as a free buffer that protects the stock.
+        </p>
+      )}
+
+      {has && m.base && (
+        <p className="mt-3 text-xs text-mute">
+          Closing to {m.baseSymbol ?? "the base xStock"} gives you the token an OKX deposit accepts.
         </p>
       )}
 
