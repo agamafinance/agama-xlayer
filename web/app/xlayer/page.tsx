@@ -429,7 +429,14 @@ function MarketCards({
             <span className="text-[15px] font-medium">{m.stock.wrapper}</span>
             <span className="text-[11px] opacity-70">{m.stock.name}</span>
           </div>
-          <div className="mt-1 text-[22px] font-semibold tabular-nums">{price(m.price)}</div>
+          <div className="mt-1 flex items-baseline gap-2">
+            <span className="text-[22px] font-semibold tabular-nums">{price(m.price)}</span>
+            {/* While the market is closed the price is frozen on purpose, so an
+                age would read as staleness. Say which it is. */}
+            <span className="text-[11px] opacity-70">
+              {m.marketOpen ? ago(m.observedAt) : 'at the close'}
+            </span>
+          </div>
           <div className="mt-1 text-[11px] opacity-70">
             Max LTV {pct(m.maxLtv)} · {m.marketOpen ? 'open' : 'closed'}
             {connected && m.balance > 0n ? ` · ${qty(m.balance, 2)} held` : ''}
