@@ -393,8 +393,19 @@ def part_b():
     send("frank", T["wTSLAx"], "approve(address,uint256)", C["earnRouter"], str(10 * E18))
     ok(reverts("frank", C["earnRouter"], "open(address,uint256,uint256)", A["TSLA"], str(10 * E18), "2500"),
        "Earn open refused while the market is closed")
-    push("TSLA", p0, is_open=True)
-    ok(call(A["TSLA"], "borrowAllowed()(bool)") == "true", "market reopened, borrows allowed again")
+    # The reopen has to come from the keeper, not from us. `pushRedStone`
+    # refuses to write a ticker whose status says closed, so RedStone cannot
+    # lift its own freeze; if the relay skips it here the market stays shut
+    # for good. Reopening by hand in this test is what hid that for a while.
+    if MODE == "fork":
+        # The relay has to carry an observation newer than the close, and on a
+        # fork the clock only moves when told to.
+        cast("rpc", "evm_increaseTime", "30")
+        cast("rpc", "evm_mine")
+    keeper("prices")
+    ok(call(A["TSLA"], "borrowAllowed()(bool)") == "true",
+       "the keeper relay reopened the market on its own")
+    push("TSLA", p0, is_open=True)  # back to the scenario's baseline price
 
     step("13. Frank: Earn, soft deleverage, recovery, close with a wallet top-up")
     send("frank", C["earnRouter"], "open(address,uint256,uint256)", A["TSLA"], str(10 * E18), "2500")

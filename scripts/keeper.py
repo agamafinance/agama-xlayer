@@ -263,9 +263,15 @@ def tick_prices(dep):
     if not names:
         return
     # Observation time = chain time (a fork's clock may lag the wall clock).
+    # The oracle refuses an observation that is not newer than the one it holds,
+    # per ticker, so the whole batch has to clear the NEWEST of them. Checking
+    # only the first one sends a push that reverts on the second.
     ts = first_int(cast("block", "latest", "-f", "timestamp"))
-    stored = call(oracle, "feed(bytes32)((uint128,uint64,bool,bool))", b32(names[0]))
-    if ts <= int(stored.strip("()").split(", ")[1].split()[0]):
+    newest = 0
+    for t in names:
+        f = call(oracle, "feed(bytes32)((uint128,uint64,bool,bool))", b32(t)).strip("()").split(", ")
+        newest = max(newest, int(f[1].split()[0]))
+    if ts <= newest:
         log("prices already current for this block, skipped")
         return
     tick_arr = "[" + ",".join(b32(t) for t in names) + "]"

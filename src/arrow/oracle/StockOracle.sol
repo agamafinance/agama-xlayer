@@ -82,6 +82,7 @@ contract StockOracle is AccessControl {
     error UnknownTicker(bytes32 ticker);
     error TickerExists(bytes32 ticker);
     error ZeroPrice();
+    error PriceOutOfRange(uint256 price);
     error ObservationInFuture();
     error ObservationNotNewer();
     error DeviationTooLarge(uint256 moveBps, uint256 capBps);
@@ -144,6 +145,10 @@ contract StockOracle is AccessControl {
         Feed storage f = _feeds[ticker];
         if (!f.exists) revert UnknownTicker(ticker);
         if (price == 0) revert ZeroPrice();
+        // The feed stores a uint128 and Solidity truncates a downcast in
+        // silence. The deviation cap would catch an absurd value on the keeper
+        // path, but `forced` (signed data) skips it, so the bound goes here.
+        if (price > type(uint128).max) revert PriceOutOfRange(price);
         if (observedAt > block.timestamp) revert ObservationInFuture();
         if (observedAt <= f.observedAt) revert ObservationNotNewer();
 

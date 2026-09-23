@@ -200,6 +200,15 @@ contract OracleTest is Test {
         oracle.push("TSLA", 400e18, uint64(vm.getBlockTimestamp() + 1), true);
     }
 
+    /// The feed stores a uint128 and a Solidity downcast truncates in silence.
+    /// The deviation cap would catch an absurd value from the keeper, but the
+    /// signed path skips that cap, so the bound has to be its own check.
+    function test_priceAboveUint128Rejected() public {
+        vm.prank(keeper);
+        vm.expectPartialRevert(StockOracle.PriceOutOfRange.selector);
+        oracle.push("TSLA", uint256(type(uint128).max) + 1, uint64(vm.getBlockTimestamp()), true);
+    }
+
     // ---- L2 sequencer -------------------------------------------------------------
 
     function test_sequencerDown_blocksReads() public {
