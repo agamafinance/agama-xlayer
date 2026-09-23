@@ -56,8 +56,14 @@ const NAV: Record<Platform, { href: string; label: string }[]> = {
   ],
 };
 
+// The X Layer mark is inlined: this deployment is reached through a rewrite on
+// app.agama.finance, and a plain /public path would be fetched from that host,
+// which has every other network's logo but not this one.
+const XLAYER_MARK =
+  'data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Crect%20width%3D%2232%22%20height%3D%2232%22%20rx%3D%229%22%20fill%3D%22%23254839%22%2F%3E%3Cpath%20d%3D%22M10%2010l12%2012M22%2010L10%2022%22%20stroke%3D%22%23fdf8ed%22%20stroke-width%3D%222.6%22%20stroke-linecap%3D%22round%22%2F%3E%3C%2Fsvg%3E';
+
 const NETWORKS: { id: Platform; label: string; logo: string; home: string }[] = [
-  { id: 'xlayer', label: 'X Layer', logo: '/xlayer.svg', home: '/xlayer' },
+  { id: 'xlayer', label: 'X Layer', logo: XLAYER_MARK, home: '/xlayer' },
   { id: 'magicblock', label: 'MagicBlock', logo: '/magicblock.png', home: '/magicblock' },
   { id: 'starknet', label: 'Starknet', logo: '/starknet.svg', home: '/starknet' },
   { id: 'sui', label: 'Sui', logo: '/sui.svg', home: '/sui' },
@@ -93,6 +99,12 @@ export function Navbar() {
         <Link
           key={item.href}
           href={item.href}
+          // Next 16 prefetches route segments with a `next-router-segment-prefetch`
+          // header. This app is served through a rewrite on app.agama.finance,
+          // which is also a Next app: it matches that header against its own
+          // route tree first and answers 404. Clicking still does a client side
+          // transition, it just is not warmed up in advance.
+          prefetch={false}
           className={clsx(
             'flex items-center rounded-full text-white transition-colors',
             mobile ? 'h-7 flex-1 justify-center text-[13px]' : 'h-10 px-4 md:px-5 text-[14px]',
@@ -108,7 +120,7 @@ export function Navbar() {
     <>
       <header className="relative z-50 bg-[#1F3D31] md:bg-transparent px-4 md:pl-6 md:pr-[24px] py-3 md:py-[11px]">
         <div className="flex items-center justify-between gap-3">
-          <Link href={current.home} className="flex items-center group shrink-0">
+          <Link href={current.home} prefetch={false} className="flex items-center group shrink-0">
             <img src="/agama-logo-beige.svg" alt="Agama" className="h-[32.8px] w-auto" />
           </Link>
 
