@@ -1,16 +1,21 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { formatUnits, parseUnits, type Address } from 'viem';
+import { encodeFunctionData, formatUnits, parseAbi, parseUnits, type Address } from 'viem';
 
-import { ADDR, BPS, RAY, STOCK_DECIMALS, TOKENS, USDG_DECIMALS } from '@/lib/xlayer/config';
-import { earnRouterAbi } from '@/lib/xlayer/generated/abis';
+import { ADDR, BPS, CHAIN_ID, RAY, STOCK_DECIMALS, TOKENS, USDG_DECIMALS } from '@/lib/xlayer/config';
+import { earnRouterAbi, zapRouterAbi } from '@/lib/xlayer/generated/abis';
 import {
   ensureAllowance, send, useXLayerMarkets, useXLayerPosition, useXLayerProtocol,
   type Market,
 } from '@/lib/xlayer/useXLayer';
 import { useXLayerWallet } from '@/lib/xlayer/WalletProvider';
 import { ago, useDepositBaseline, useLastAgentAction } from '@/lib/xlayer/agents';
+
+/// The testnet stand-in DEX, priced at the Agama oracle and allowlisted on the zap.
+const testDexAbi = parseAbi([
+  'function swap(address wrapper, uint256 usdgIn, uint256 priceUsdg6) returns (uint256 out)',
+]);
 
 const pct = (bps: bigint | undefined) => (bps === undefined ? '—' : `${Number(bps) / 100}%`);
 const usd = (v: bigint | undefined) =>
@@ -34,6 +39,7 @@ export default function XLayerEarnPage() {
   const [amount, setAmount] = useState('');
   const [ltv, setLtv] = useState(25);
   const [useBase, setUseBase] = useState(true);
+  const [buying, setBuying] = useState(false);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
 
@@ -43,11 +49,11 @@ export default function XLayerEarnPage() {
 
   const amt = useMemo(() => {
     try {
-      return amount ? parseUnits(amount, STOCK_DECIMALS) : 0n;
+      return amount ? parseUnits(amount, buying ? USDG_DECIMALS : STOCK_DECIMALS) : 0n;
     } catch {
       return 0n;
     }
-  }, [amount]);
+  }, [amount, buying]);
 
   const maxLtv = m ? Number(m.maxLtv) / 100 : 30;
   const borrowed = m && amt > 0n ? (amt * m.price / 10n ** 18n) * BigInt(Math.round(ltv * 100)) / BPS : 0n;
@@ -56,6 +62,51 @@ export default function XLayerEarnPage() {
   const extra = spread !== undefined ? (spread * BigInt(Math.round(ltv * 100))) / BPS : undefined;
 
   const bump = () => { setTick((t) => t + 1); refresh(); };
+
+  /// Buy the stock and open the position in one transaction. On testnet the
+  /// allowlisted venue is the oracle-priced stand-in router; on X Layer mainnet
+  /// the calldata comes from the OKX aggregator through /api/zap, which signs
+  /// the call server side.
+  async function buyAndEarn() {
+    if (!address || !m) return;
+    const zap = ADDR.zapRouter;
+    const dex = ADDR.testDexRouter;
+    if (!zap) { setStatus('No zap router on this network'); return; }
+    setBusy(true);
+    try {
+      let target: Address, spender: Address, data: `0x${string}`, minOut: bigint;
+      if (CHAIN_ID === 1952) {
+        if (!dex) throw new Error('No swap venue on this network');
+        if (!m.wrapperPrice) throw new Error('No wrapper price yet');
+        target = dex; spender = dex;
+        data = encodeFunctionData({
+          abi: testDexAbi, functionName: 'swap', args: [m.wrapper, amt, m.wrapperPrice],
+        });
+        minOut = ((amt * 10n ** 18n) / m.wrapperPrice) * 98n / 100n;
+      } else {
+        const res = await fetch('/api/zap', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ mode: 'swap', stock: m.stock.key, amount: amt.toString() }),
+        });
+        const j = await res.json();
+        if (!res.ok) throw new Error(j.error ?? 'aggregator error');
+        target = j.router; spender = j.spender; data = j.data; minOut = BigInt(j.minReceive);
+      }
+      setStatus('Approving…');
+      await ensureAllowance(address, TOKENS.USDG, zap, amt);
+      setStatus('Buying and opening…');
+      await send(address, zap, zapRouterAbi, 'buyAndEarn',
+        [amt, target, spender, data, m.adapter, minOut, BigInt(Math.round(ltv * 100))]);
+      setStatus('Done');
+      setAmount('');
+      bump();
+    } catch (e: unknown) {
+      setStatus(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function open() {
     if (!address || !m || !token) return;
@@ -142,6 +193,22 @@ export default function XLayerEarnPage() {
               </div>
 
               <div className="mt-4 flex items-center gap-1 rounded-full bg-[#254839]/[0.06] p-1 w-fit">
+                {([[false, 'Deposit'], [true, 'Buy and Earn']] as const).map(([v, label]) => (
+                  <button
+                    key={label}
+                    onClick={() => { setBuying(v); setAmount(''); }}
+                    className={
+                      v === buying
+                        ? 'rounded-full bg-[#254839] px-4 py-1.5 text-[13px] font-medium text-[#fdf8ed]'
+                        : 'rounded-full px-4 py-1.5 text-[13px] text-fg-muted hover:text-fg'
+                    }
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              <div className={buying ? 'hidden' : 'mt-3 flex items-center gap-1 rounded-full bg-[#254839]/[0.06] p-1 w-fit'}>
                 {([[true, 'From OKX'], [false, 'Wrapped']] as const).map(([v, label]) => (
                   <button
                     key={label}
@@ -157,15 +224,21 @@ export default function XLayerEarnPage() {
                 ))}
               </div>
               <p className="mt-2 text-[12px] text-fg-muted">
-                A stock withdrawn from the OKX app lands as {symbol || 'the base token'}, and that is what
-                this takes. Closing hands the same token back.
+                {buying
+                  ? 'Do not hold the stock yet? One transaction buys it and opens the position with it.'
+                  : `A stock withdrawn from the OKX app lands as ${symbol || 'the base token'}, and that is what this takes. Closing hands the same token back.`}
               </p>
 
               <div className="mt-4 rounded-2xl border border-[#254839]/12 bg-white/60 p-4">
                 <div className="flex items-center justify-between text-[12px] text-fg-muted">
-                  <span>Deposit</span>
-                  <button onClick={() => setAmount(formatUnits(balance ?? 0n, STOCK_DECIMALS))} className="hover:text-fg">
-                    Balance {qty(balance)} · Max
+                  <span>{buying ? 'Spend' : 'Deposit'}</span>
+                  <button
+                    onClick={() => setAmount(formatUnits(buying ? (proto?.usdg ?? 0n) : (balance ?? 0n), buying ? USDG_DECIMALS : STOCK_DECIMALS))}
+                    className="hover:text-fg"
+                  >
+                    Balance {buying
+                      ? Number(formatUnits(proto?.usdg ?? 0n, USDG_DECIMALS)).toFixed(2)
+                      : qty(balance)} · Max
                   </button>
                 </div>
                 <div className="mt-1.5 flex items-center justify-between">
@@ -177,10 +250,14 @@ export default function XLayerEarnPage() {
                     className="w-full bg-transparent text-[28px] font-semibold text-fg tabular-nums outline-none placeholder:text-fg-muted/40"
                   />
                   <span className="shrink-0 rounded-full bg-[#254839]/[0.06] px-3 py-1.5 text-[14px] font-medium text-fg">
-                    {symbol}
+                    {buying ? 'USDG' : symbol}
                   </span>
                 </div>
-                <div className="mt-1 text-[12px] text-fg-muted">{price(m?.price)} per share</div>
+                <div className="mt-1 text-[12px] text-fg-muted">
+                  {buying && amt > 0n && m?.wrapperPrice
+                    ? `about ${qty((amt * 10n ** 18n) / m.wrapperPrice)} ${m.stock.wrapper} at ${price(m?.price)}`
+                    : `${price(m?.price)} per share`}
+                </div>
               </div>
 
               <div className="mt-4 rounded-2xl border border-[#254839]/12 bg-white/60 p-4">
@@ -209,11 +286,19 @@ export default function XLayerEarnPage() {
               </dl>
 
               <button
-                onClick={address ? open : connect}
-                disabled={busy || (!!address && (amt === 0n || amt > (balance ?? 0n)))}
+                onClick={address ? (buying ? buyAndEarn : open) : connect}
+                disabled={busy || (!!address && (amt === 0n || amt > (buying ? (proto?.usdg ?? 0n) : (balance ?? 0n))))}
                 className="mt-4 w-full rounded-full bg-[#254839] px-5 py-3.5 text-[15px] font-medium text-[#fdf8ed] transition-colors hover:bg-[#1F3D31] disabled:opacity-45"
               >
-                {!address ? 'Connect Wallet' : busy ? status || 'Working…' : ltv > 0 ? 'Deposit and borrow' : 'Deposit as collateral'}
+                {!address
+                  ? 'Connect Wallet'
+                  : busy
+                    ? status || 'Working…'
+                    : buying
+                      ? 'Buy and earn'
+                      : ltv > 0
+                        ? 'Deposit and borrow'
+                        : 'Deposit as collateral'}
               </button>
               {status && !busy && <p className="mt-2 text-[12px] text-fg-muted">{status}</p>}
             </div>
