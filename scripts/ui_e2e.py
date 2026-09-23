@@ -177,8 +177,11 @@ async def main():
     step(f"0. funding the UI wallet {ACCOUNT}")
     bal = int(subprocess.check_output(["cast", "balance", ACCOUNT, "--rpc-url", RPC], text=True).split()[0])
     if bal < 3 * 10**15:
-        subprocess.run(["cast", "send", ACCOUNT, "--value", str(5 * 10**15), "--private-key", admin_key(),
-                        "--rpc-url", RPC], check=True, capture_output=True)
+        # Never let the key reach an exception message or a log line.
+        r = subprocess.run(["cast", "send", ACCOUNT, "--value", str(5 * 10**15), "--private-key", admin_key(),
+                            "--rpc-url", RPC], capture_output=True, text=True)
+        if r.returncode != 0:
+            raise SystemExit(f"   FAIL: funding the UI wallet: {r.stderr.strip()[-200:]}")
     ok(True, "gas funded (0.005 OKB)")
 
     async with async_playwright() as p:

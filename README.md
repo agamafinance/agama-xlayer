@@ -4,6 +4,7 @@
 
 - **Earn on your stocks.** Deposit a tokenized stock (xStocks by Backed: wTSLAx, wNVDAx, wSPYx, wAAPLx), borrow USDG at the LTV you choose, and the USDG goes into the Agama RWA vault. You keep the stock exposure and earn the vault yield minus the borrow rate on the borrowed amount. The vault shares stay in your account as a buffer: if the stock falls, anyone can trigger a soft deleverage that repays debt from those shares. **Your stock is never the first thing sold.**
 - **Buy and Earn.** Do not hold the stock yet? One transaction buys it through the OKX Onchain OS DEX aggregator and opens the Earn position with it.
+- **Straight from the OKX app.** Withdrawing a tokenized stock from OKX to X Layer delivers the BASE xStock (TSLAx), not the ERC-4626 wrapper the markets take. `openWithBase` wraps it on the way in and `closeToBase` hands it back, so a position can be opened from an OKX withdrawal and sent straight back to an OKX deposit.
 - **Amplify.** Loop the Agama vault on Arrow up to 3x in one transaction. `net APY = vaultAPY + (L - 1) x (vaultAPY - borrowAPR)`. If the carry turns negative, anyone can unwind the loop back to 1x.
 
 Built for OKX Dev Day 2026, track **Build a Market** (tokenized stocks and RWA on X Layer).
@@ -155,6 +156,7 @@ Not deployed: the hackathon demo lives on testnet so anyone can try it with the 
 |---|---|
 | X Layer | Every contract, verified on the OKLink explorer |
 | xStocks (Backed) | Collateral, through the ERC-4626 wrappers |
+| OKX app withdrawals | The base xStock an OKX withdrawal sends is accepted directly (`openWithBase`), and a position closes back into it (`closeToBase`) for a deposit to OKX |
 | USDG | Base asset of the Arrow pool and of the Agama vault |
 | Onchain OS DEX API | The Buy and Earn zap: `/api/v6/dex/aggregator/{quote,approve-transaction,swap}` on `chainIndex=196`, signed server side (`scripts/okx_dex.py`, and the app's `/api/zap` route). The aggregator covers mainnet only, so the live testnet app routes the same zap through a stand-in router priced at the oracle, and the real aggregator path is exercised on a mainnet fork |
 | OKX Wallet | First connector in the app |
