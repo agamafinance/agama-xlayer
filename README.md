@@ -81,7 +81,9 @@ flowchart LR
 | `softDeleverage` | HF below 1.15 | repays to HF 1.40 out of the buffer, stock untouched |
 | `autoUnwind` (Amplify) | borrow rate above the vault's measured APY | unwinds to 1x, equity stays with the owner |
 
-All five are permissionless. `scripts/keeper.py` runs them on a timer, but anyone can.
+All five are permissionless. `scripts/keeper.py` runs them on a timer, but anyone can, and Agama's keeper is one caller among others rather than a privileged one.
+
+**The app gives the user no button for any of this.** The position card says the agents are running, names the level being held, shows how much stock they have added since the deposit and what the last action was. Nothing more. A "Rebalance now" button would say that this is a chore the user owns, which is the opposite of the product.
 
 ## Risk parameters (v1)
 
@@ -104,11 +106,19 @@ Ported from the Agama protocol and changed for X Layer:
 
 Imported unchanged: `DebtToken`, rate and reserve libraries, `agUSD`, `sagUSD`.
 
+## The front is a fork of the Agama app, not a page of its own
+
+`web/` is the production front of [app.agama.finance](https://app.agama.finance), copied whole at the commit that was live, in one commit of its own so everything after it reads as a diff. That app is already multi-chain: Stellar, Sui, Starknet, MagicBlock and Arbitrum each plug into the same shell as a platform, with the same navbar, the same cream panels on the same green frame, the same connect pill.
+
+X Layer became one more platform in it. That is the whole point: the Dev Day build is not a demo that looks like a demo, it is Agama with a new network in it, and every component it reuses is one we did not have to invent for a deadline.
+
+What was added on top of the fork: the `xlayer` platform and its network entry, `lib/xlayer` reading the Foundry deployment, the Earn page, Amplify, Lend, the testnet faucet, and the OKX aggregator route. What was removed: the standalone front this build started with.
+
 ## Run it
 
 ```bash
 forge build
-forge test                         # 60 tests, most on a fork of X Layer mainnet (real USDG, real xStocks)
+forge test                         # 69 tests, most on a fork of X Layer mainnet (real USDG, real xStocks)
 
 # local X Layer mainnet fork with the full stack and real Chainlink prices
 anvil --fork-url https://xlayerrpc.okx.com --chain-id 1961 &
@@ -116,7 +126,7 @@ anvil --fork-url https://xlayerrpc.okx.com --chain-id 1961 &
 python3 scripts/e2e.py fork        # full scenario with real transactions
 
 # front
-cd app && pnpm install && pnpm dev # http://localhost:3021
+cd web && pnpm install && pnpm dev # http://localhost:3004/xlayer
 ```
 
 The end-to-end scenario: Alice opens Earn on 10 wTSLAx at 25%, Carol at 30% without a buffer, Bob opens Amplify 3x; vault yield is settled; TSLA crashes to 71.5%; the keeper soft-deleverages Alice (she keeps all 10 wTSLAx) and the stability pool partially liquidates Carol (she keeps 5.4 of 10); a buyer takes the seized stock at a 3% discount; TSLA recovers and everyone exits.
@@ -206,7 +216,8 @@ Licensing note: the RedStone consumer contracts are vendored under `lib/redstone
 ## Known limits, stated plainly
 
 - The Agama vault's private-credit yield is settled on-chain by the operator (`settleYield`). The credit deployment itself happens off-chain with asset managers.
-- The keeper relay is a trusted role, bounded by deviation caps; Data Streams removes that trust once credentials are active.
+- The keeper relay is a trusted role, bounded by deviation caps; Data Streams would remove that trust, but it is not on X Layer (see the oracle section).
+- The stock added by the agents is measured against a deposit baseline kept in the browser: the chain records no such baseline, and the public RPC caps log scans at 100 blocks. The collateral itself is read on chain; only the "since you deposited" part is local.
 - Instant exits and soft deleverage rely on the vault's liquid reserve (50% target). Larger exits go through the redemption queue.
 - `autoUnwind` needs two vault snapshots with measured yield before it can fire, by design.
 - Not audited. Mainnet deployment runs with small caps.
