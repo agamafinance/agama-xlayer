@@ -22,3 +22,8 @@ docs/
 /deployments/196-fork.json
 /broadcast/Deploy.s.sol/196/
 node_modules/
+
+# Next.js build output (the forked front lives in web/)
+.next/
+*.tsbuildinfo
+.vercel/
