@@ -16,10 +16,14 @@ contract AgamaAccountFactory is AccessControl {
     address public immutable IMPLEMENTATION;
     mapping(address user => address) public accountOf;
     mapping(address router => bool) public isRouter;
+    /// @notice The zap router, whose swap allowlist the accounts reuse when the
+    ///         agents compound vault yield back into stock.
+    address public zapRouter;
     address[] public accounts;
 
     event AccountCreated(address indexed user, address indexed account);
     event RouterSet(address indexed router, bool allowed);
+    event ZapRouterSet(address indexed zap);
 
     constructor(address implementation, address admin) {
         IMPLEMENTATION = implementation;
@@ -43,6 +47,11 @@ contract AgamaAccountFactory is AccessControl {
 
     function accountCount() external view returns (uint256) {
         return accounts.length;
+    }
+
+    function setZapRouter(address zap) external onlyRole(GOVERNOR_ROLE) {
+        zapRouter = zap;
+        emit ZapRouterSet(zap);
     }
 
     function setRouter(address router, bool allowed) external onlyRole(GOVERNOR_ROLE) {

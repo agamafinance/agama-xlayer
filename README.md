@@ -2,7 +2,11 @@
 
 **Earn on your stocks** and **Amplify**: two one-click products on top of an Arrow Finance lending pool on X Layer, deployed by Agama as part of the Arrow x Agama partnership (Arrow runs the same model on Robinhood Chain).
 
-- **Earn on your stocks.** Deposit a tokenized stock (xStocks by Backed: wTSLAx, wNVDAx, wSPYx, wAAPLx), borrow USDG at the LTV you choose, and the USDG goes into the Agama RWA vault. You keep the stock exposure and earn the vault yield minus the borrow rate on the borrowed amount. The vault shares stay in your account as a buffer: if the stock falls, anyone can trigger a soft deleverage that repays debt from those shares. **Your stock is never the first thing sold.**
+- **Earn on your stocks: deposit the stock, get more stock.** Deposit a tokenized stock (xStocks by Backed: wTSLAx, wNVDAx, wSPYx, wAAPLx) and pick one level on a slider. Everything after that is automatic: the protocol borrows USDG against it, puts the USDG in the Agama RWA vault, and permissionless agents keep it there:
+  - the stock goes up, the agent borrows the difference and vaults it, so the position never drifts below the level you picked;
+  - the stock goes down, the agent repays from the yield already earned, never by selling your stock;
+  - the yield the vault produced is swapped back into **more of your stock** and added as collateral, so what grows is your share count, not a stablecoin balance;
+  - and if it ever gets close to trouble, a soft deleverage spends the yield buffer first. **Your stock is never the first thing sold.**
 - **Buy and Earn.** Do not hold the stock yet? One transaction buys it through the OKX Onchain OS DEX aggregator and opens the Earn position with it.
 - **Straight from the OKX app.** Withdrawing a tokenized stock from OKX to X Layer delivers the BASE xStock (TSLAx), not the ERC-4626 wrapper the markets take. `openWithBase` wraps it on the way in and `closeToBase` hands it back, so a position can be opened from an OKX withdrawal and sent straight back to an OKX deposit.
 - **Amplify.** Loop the Agama vault on Arrow up to 3x in one transaction. `net APY = vaultAPY + (L - 1) x (vaultAPY - borrowAPR)`. If the carry turns negative, anyone can unwind the loop back to 1x.
@@ -61,9 +65,21 @@ flowchart LR
 | `ArrowStabilityPool` | Liquidation backstop (Arrow model). `liquidate` is permissionless. Seized stocks are sold to anyone at the oracle price minus 3% (`buyCollateral`), since X Layer DEX depth for xStocks is a few dollars. Seized vault shares are redeemed with priority. |
 | `RedStoneStockOracle` | The oracle the markets read. Adds the RedStone path on top of the two below: permissionless `pushRedStone`, 3 of 5 signers, median, 8 to 18 decimals, and a refusal to move a price while the keeper has the market marked closed. |
 | `DataStreamsStockOracle` | Stores prices a lending market can read. Verifies Chainlink Data Streams v11 reports on-chain (permissionless) and accepts a bounded keeper relay. Market status aware (24/5), sequencer-uptime check, never falls back to a default price. |
-| `AgamaAccount` | The borrower of record, one clone per user. Earn open/close, `softDeleverage` (anyone, HF < 1.15 -> back to 1.40), Amplify loop and unwind, `autoUnwind` spread guard. |
+| `AgamaAccount` | The borrower of record, one clone per user, and where the automation lives. Earn open/close, `rebalance` (anyone: hold the LTV the owner picked, in both directions), `compoundIntoStock` (anyone: turn vault yield above the debt into more stock, only through a router the zap allowlists), `softDeleverage` (anyone, HF < 1.15 -> back to 1.40), Amplify loop and unwind, `autoUnwind` spread guard. Nothing here needs our keeper: it is convenience, not control. |
 | `AgamaZapRouter` | Buy and Earn. Calls the OKX DEX aggregator with calldata built off-chain, measures what actually arrived, and opens the Earn position for the buyer. Only governor-allowlisted routers can be called or approved, and the amount bought is checked against the aggregator's `minReceiveAmount`. |
 | `agUSDQueue` / `sagUSD` | The Agama vault on USDG. On X Layer it gains a `PRIORITY_ROLE` for the stability pool and a one-shot **forbidden vault**: the vault can never lend into the pool that accepts its own shares (the Stream xUSD / Elixir loop). |
+
+## What the agents do, and what they cannot do
+
+| Agent action | Trigger | Guard |
+|---|---|---|
+| `rebalance` up | stock rose, LTV drifted 1% under target | cannot exceed the market's max LTV, borrow blocked while the market is closed |
+| `rebalance` down | stock fell, LTV drifted 1% over target | repays from the yield buffer only, never sells the stock |
+| `compoundIntoStock` | vault yield above the debt | only the surplus over the debt is spent, so the protective buffer stays; swaps only through an allowlisted router with a slippage floor |
+| `softDeleverage` | HF below 1.15 | repays to HF 1.40 out of the buffer, stock untouched |
+| `autoUnwind` (Amplify) | borrow rate above the vault's measured APY | unwinds to 1x, equity stays with the owner |
+
+All five are permissionless. `scripts/keeper.py` runs them on a timer, but anyone can.
 
 ## Risk parameters (v1)
 
@@ -74,7 +90,7 @@ flowchart LR
 | wAAPLx | 35% | 45% | 8% | -8 pts |
 | Agama vault shares | 70% | 80% | 5% | none (3% haircut) |
 
-Earn defaults to 25% LTV. Amplify is capped at 3x. Rates: 1% base, 6% at 90% utilization.
+The slider goes from 0 to the market maximum and Earn defaults to 25%. A single stock cannot take the 70% an index-style asset could: earnings gaps of 20% happen, and the weekend buffer has to sit under the liquidation threshold. Amplify is capped at 3x. Rates: 1% base, 6% at 90% utilization.
 
 ## What was built during the OKX Dev Day build period
 
@@ -93,7 +109,7 @@ forge build
 forge test                         # 60 tests, most on a fork of X Layer mainnet (real USDG, real xStocks)
 
 # local X Layer mainnet fork with the full stack and real Chainlink prices
-anvil --fork-url https://rpc.xlayer.tech --chain-id 1961 &
+anvil --fork-url https://xlayerrpc.okx.com --chain-id 1961 &
 ./scripts/fork-reset.sh            # deploy + seed + one keeper tick
 python3 scripts/e2e.py fork        # full scenario with real transactions
 
@@ -164,7 +180,7 @@ Not deployed: the hackathon demo lives on testnet so anyone can try it with the 
 The zap runs against the real aggregator on a fork of X Layer mainnet:
 
 ```bash
-anvil --fork-url https://rpc.xlayer.tech --chain-id 196 --port 8546 &
+anvil --fork-url https://xlayerrpc.okx.com --chain-id 196 --port 8546 &
 DEPLOY_FILE=196-fork.json forge script script/Deploy.s.sol --rpc-url http://127.0.0.1:8546 --broadcast --private-key <anvil key>
 python3 scripts/zap_check.py 200
 # quote: 0.527058 wTSLAx at $379.66 -> buyAndEarn mined in 1,307,394 gas

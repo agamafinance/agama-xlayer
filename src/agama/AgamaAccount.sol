@@ -14,6 +14,12 @@ import {IagUSDQueue} from "../vault/interfaces/IagUSDQueue.sol";
 
 interface IAgamaAccountFactory {
     function isRouter(address router) external view returns (bool);
+    function zapRouter() external view returns (address);
+}
+
+interface IAllowedSwapTargets {
+    function allowedTarget(address target) external view returns (bool);
+    function allowedSpender(address spender) external view returns (bool);
 }
 
 /// @title AgamaAccount
@@ -51,6 +57,8 @@ contract AgamaAccount is ReentrancyGuard {
     uint256 public constant MAX_LEVERAGE_BPS = 30_000;
     uint256 public constant SPREAD_BUFFER_RAY = 0.01e27;
     uint256 internal constant MAX_LOOPS = 24;
+    /// @notice Drift around the target LTV the agents tolerate before acting.
+    uint256 public constant REBALANCE_BAND_BPS = 100;
 
     IArrowPool public immutable POOL;
     IERC20 public immutable USDG;
@@ -68,9 +76,18 @@ contract AgamaAccount is ReentrancyGuard {
     address[] public earnMarkets;
     mapping(address adapter => bool) public isEarnMarket;
 
+    /// @notice LTV the owner picked per market, in bps. The agents keep the
+    ///         position at that level: the user sets it once and never has to
+    ///         come back.
+    mapping(address adapter => uint256) public targetLtvBps;
+
     event EarnOpened(address indexed adapter, uint256 stockAmount, uint256 borrowed, uint256 shares);
     event EarnClosed(address indexed adapter, uint256 repaid, uint256 stockReturned);
     event SoftDeleveraged(address indexed caller, address indexed adapter, uint256 repaid, uint256 hfAfter);
+    event Rebalanced(address indexed caller, address indexed adapter, int256 debtDelta, uint256 ltvBpsAfter);
+    event CompoundedIntoStock(
+        address indexed caller, address indexed adapter, uint256 usdgSpent, uint256 stockAdded
+    );
     event AmplifyOpened(uint256 equityUsdg, uint256 debt, uint256 pledgedShares, uint256 loops);
     event AmplifyClosed(uint256 repaid, uint256 sharesOut, uint256 usdgOut, bool keptForEarn);
     event AutoUnwound(address indexed caller, uint256 borrowRateRay, uint256 vaultApyRay);
@@ -84,6 +101,11 @@ contract AgamaAccount is ReentrancyGuard {
     error Underwater();
     error UnwindIncomplete(uint256 debtLeft);
     error SpreadPositive(uint256 borrowRateRay, uint256 vaultApyRay);
+    error AlreadyOnTarget(uint256 ltvBps, uint256 targetBps);
+    error NothingToCompound();
+    error SwapTargetNotAllowed(address target);
+    error SwapFailed(bytes reason);
+    error TooLittleStockBought(uint256 got, uint256 minOut);
     error InsufficientToRepay(uint256 shortfall);
 
     constructor(IArrowPool pool, IagUSDQueue queue, IERC4626 vault, ArrowVaultShareAdapter vaultAdapter) {
@@ -131,6 +153,9 @@ contract AgamaAccount is ReentrancyGuard {
             POOL.borrow(stockAdapter, "", borrowAmount);
             shares = _toVault(borrowAmount);
         }
+        uint256 value = IArrowAdapter(stockAdapter).getAssetValue(address(this), "");
+        uint256 debt = POOL.getPositionScaledDebt(stockAdapter, address(this), "");
+        targetLtvBps[stockAdapter] = value == 0 ? 0 : (debt * BPS) / value;
         emit EarnOpened(stockAdapter, stockAmount, borrowAmount, shares);
     }
 
@@ -204,6 +229,97 @@ contract AgamaAccount is ReentrancyGuard {
         emit SoftDeleveraged(
             msg.sender, stockAdapter, repaid, POOL.calculateHealthFactor(stockAdapter, address(this), "")
         );
+    }
+
+    /// @notice Keep the position at the LTV the owner picked, in both
+    ///         directions. Permissionless, so the agents can run it:
+    ///         the stock went up, borrow the difference and put it in the
+    ///         vault; the stock went down, repay from the yield buffer. The
+    ///         user deposits once and never has to manage the position.
+    /// @dev    A 1% band around the target avoids churning on every tick.
+    function rebalance(address stockAdapter) external nonReentrant returns (int256 debtDelta) {
+        uint256 target = targetLtvBps[stockAdapter];
+        if (target == 0) revert AlreadyOnTarget(0, 0);
+
+        uint256 value = IArrowAdapter(stockAdapter).getAssetValue(address(this), "");
+        uint256 debt = POOL.getPositionScaledDebt(stockAdapter, address(this), "");
+        uint256 wanted = (value * target) / BPS;
+        uint256 band = (value * REBALANCE_BAND_BPS) / BPS;
+
+        if (wanted > debt + band) {
+            uint256 extra = wanted - debt;
+            uint256 minBorrow = POOL.minBorrowAmount();
+            if (extra < minBorrow) revert AlreadyOnTarget((debt * BPS) / value, target);
+            POOL.borrow(stockAdapter, "", extra);
+            _toVault(extra);
+            debtDelta = int256(extra);
+        } else if (debt > wanted + band) {
+            uint256 repayWanted = debt - wanted;
+            uint256 cash = USDG.balanceOf(address(this));
+            uint256 available = cash + VAULT_ADAPTER.valueOf(VAULT.balanceOf(address(this)));
+            uint256 amount = Math.min(repayWanted, available);
+            if (amount == 0) revert NothingToDeleverage();
+            if (cash < amount) _redeemForUsdg(amount - cash);
+            uint256 paid = Math.min(amount, USDG.balanceOf(address(this)));
+            USDG.forceApprove(address(POOL), paid);
+            POOL.repay(stockAdapter, "", paid);
+            debtDelta = -int256(paid);
+        } else {
+            revert AlreadyOnTarget((debt * BPS) / value, target);
+        }
+
+        uint256 newDebt = POOL.getPositionScaledDebt(stockAdapter, address(this), "");
+        emit Rebalanced(msg.sender, stockAdapter, debtDelta, value == 0 ? 0 : (newDebt * BPS) / value);
+    }
+
+    /// @notice Turn the yield the vault produced into MORE STOCK: the surplus
+    ///         above the debt is redeemed, swapped through an allowlisted
+    ///         router, and added as collateral. This is what makes the
+    ///         position a stock that grows in stock rather than in stablecoin.
+    ///         Permissionless, and the swap route is whatever the zap router
+    ///         allows, so the agents cannot send the money anywhere else.
+    /// @param usdgIn      Exactly what the swap calldata spends. Must not
+    ///        exceed the surplus over the debt: the caller and the contract
+    ///        have to agree on the amount, or the router would pull USDG the
+    ///        account does not have (interest accrues between the two).
+    /// @param minStockOut Slippage guard, in wrapped stock units.
+    function compoundIntoStock(
+        address stockAdapter,
+        uint256 usdgIn,
+        address swapTarget,
+        address swapSpender,
+        bytes calldata swapData,
+        uint256 minStockOut
+    ) external nonReentrant returns (uint256 stockAdded) {
+        IAllowedSwapTargets zap = IAllowedSwapTargets(IAgamaAccountFactory(factory).zapRouter());
+        if (!zap.allowedTarget(swapTarget) || !zap.allowedSpender(swapSpender)) {
+            revert SwapTargetNotAllowed(swapTarget);
+        }
+
+        // Only the surplus over the debt is profit: the rest is the buffer that
+        // protects the stock from being liquidated first.
+        uint256 debt = POOL.getPositionScaledDebt(stockAdapter, address(this), "");
+        uint256 have = redeemableUsdg();
+        if (have <= debt || usdgIn == 0 || usdgIn > have - debt) revert NothingToCompound();
+
+        uint256 cash = USDG.balanceOf(address(this));
+        if (cash < usdgIn) _redeemForUsdg(usdgIn - cash);
+        uint256 spend = usdgIn;
+        if (USDG.balanceOf(address(this)) < spend) revert NothingToCompound();
+
+        IERC20 stock = IERC20(IArrowAdapter(stockAdapter).getAssetToken());
+        uint256 before = stock.balanceOf(address(this));
+        USDG.forceApprove(swapSpender, spend);
+        (bool okCall, bytes memory reason) = swapTarget.call(swapData);
+        if (!okCall) revert SwapFailed(reason);
+        USDG.forceApprove(swapSpender, 0);
+
+        stockAdded = stock.balanceOf(address(this)) - before;
+        if (stockAdded < minStockOut) revert TooLittleStockBought(stockAdded, minStockOut);
+
+        stock.forceApprove(stockAdapter, stockAdded);
+        POOL.depositAsset(stockAdapter, abi.encode(stockAdded));
+        emit CompoundedIntoStock(msg.sender, stockAdapter, spend, stockAdded);
     }
 
     // =====================================================================

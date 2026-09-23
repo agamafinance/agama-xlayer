@@ -26,10 +26,20 @@ for w in wTSLAx wNVDAx wSPYx wAAPLx; do
 done
 echo "balances credited (admin 100k USDG, demo user 10k USDG + 10 of each xStock)"
 
-cast send "$USDG" "approve(address,uint256)" "$POOL" 20000000000 --private-key $KEY0 --rpc-url "$RPC" >/dev/null
-cast send "$POOL" "deposit(uint256,address)" 20000000000 "$ADMIN" --private-key $KEY0 --rpc-url "$RPC" >/dev/null
-cast send "$USDG" "approve(address,uint256)" "$SP" 5000000000 --private-key $KEY0 --rpc-url "$RPC" >/dev/null
-cast send "$SP" "depositUSDG(uint256,address)" 5000000000 "$ADMIN" --private-key $KEY0 --rpc-url "$RPC" >/dev/null
+# Every send is checked: a silent failure here leaves the demo without
+# liquidity or without a liquidation backstop, which is worse than stopping.
+send() {
+  local out
+  out=$(cast send "$@" --private-key $KEY0 --rpc-url "$RPC" --gas-limit 6000000 --json 2>&1) || {
+    echo "FAILED: cast send $1 $2: $(echo "$out" | tail -1)"; exit 1; }
+  [ "$(echo "$out" | python3 -c 'import json,sys;print(json.load(sys.stdin)["status"])' 2>/dev/null)" = "0x1" ] || {
+    echo "FAILED: reverted: cast send $1 $2"; exit 1; }
+}
+
+send "$USDG" "approve(address,uint256)" "$POOL" 20000000000
+send "$POOL" "deposit(uint256,address)" 20000000000 "$ADMIN"
+send "$USDG" "approve(address,uint256)" "$SP" 5000000000
+send "$SP" "depositUSDG(uint256,address)" 5000000000 "$ADMIN"
 SP_SHARES=$(cast call "$POOL" "balanceOf(address)(uint256)" "$SP" --rpc-url "$RPC" | awk '{print $1}')
 [ "${SP_SHARES:-0}" -gt 0 ] || { echo "FAILED: the stability pool is empty, liquidations would be impossible"; exit 1; }
 echo "Arrow supplied 20,000 USDG, stability pool 5,000 USDG"

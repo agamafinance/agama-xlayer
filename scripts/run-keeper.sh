@@ -7,7 +7,7 @@ cd "$(dirname "$0")/.."
 NET=${1:-testnet}
 case $NET in
   testnet) export RPC_URL=https://testrpc.xlayer.tech/terigon DEPLOYMENT=deployments/1952.json ;;
-  mainnet) export RPC_URL=https://rpc.xlayer.tech DEPLOYMENT=deployments/196.json ;;
+  mainnet) export RPC_URL=https://xlayerrpc.okx.com DEPLOYMENT=deployments/196.json ;;
   *) echo "usage: $0 testnet|mainnet"; exit 1 ;;
 esac
 KEEPER_KEY=$(python3 -c "import json;d=json.load(open('.keys/deployer.json'));d=d[0] if isinstance(d,list) else d;print(d['private_key'])")

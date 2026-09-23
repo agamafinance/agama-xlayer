@@ -210,6 +210,9 @@ abstract contract Deployer {
         // 8. Buy and Earn in one transaction, through the OKX DEX aggregator.
         d.zap = new AgamaZapRouter(d.earn, cfg.admin);
         d.earn.setZap(address(d.zap), true);
+        // The accounts read the zap's swap allowlist when the agents compound
+        // vault yield back into stock.
+        d.factory.setZapRouter(address(d.zap));
         if (cfg.assets.okxDexRouter != address(0)) {
             d.zap.setTarget(cfg.assets.okxDexRouter, true);
             d.zap.setSpender(cfg.assets.okxDexApprove, true);

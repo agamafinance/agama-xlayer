@@ -24,9 +24,11 @@ Part B (the remaining paths):
   14. Grace: Earn, Amplify stacked on the Earn shares, close Amplify (equity goes back to the Earn
       buffer, not the wallet), close Earn on that buffer
   15. Buy and Earn: one transaction buys the stock and opens the position
-  16. OKX rail: a stock withdrawn from the OKX app (the base xStock) is deposited
+  16. Agents: the stock rises, `rebalance` borrows the difference and vaults it;
+      `compoundIntoStock` turns the vault yield into more stock
+  17. OKX rail: a stock withdrawn from the OKX app (the base xStock) is deposited
       directly, and the position closes back into that same token
-  17. Dave withdraws his supply with the interest paid by the borrowers
+  18. Dave withdraws his supply with the interest paid by the borrowers
 """
 
 import json
@@ -457,7 +459,48 @@ def part_b():
            f"bought {p['collateral'] / E18:.6f} wTSLAx with {spend / E6:.0f} USDG and opened at 25% LTV "
            f"(debt {p['debt'] / E6:.2f}, HF {p['hf'] / RAY:.3f}), nothing left in the wallet")
 
-    step("16. OKX rail: deposit the base xStock, close back to it")
+    step("16. Agents: the stock goes up, the position follows, the yield becomes stock")
+    acct = earn_pos("frank")["account"] if earn_pos("frank")["debt"] else None
+    # Frank closed his position in step 13, so use a fresh one for the agents.
+    send("frank", T["wTSLAx"], "faucet(address,uint256)", ADDR["frank"], str(10 * E18)) if MODE == "testnet" else None
+    send("frank", T["wTSLAx"], "approve(address,uint256)", C["earnRouter"], str(10 * E18))
+    send("frank", C["earnRouter"], "open(address,uint256,uint256)", A["TSLA"], str(10 * E18), "2500")
+    f = earn_pos("frank")
+    acct = f["account"]
+    target = num(call(acct, "targetLtvBps(address)(uint256)", A["TSLA"]))
+    ok(2_450 <= target <= 2_550, f"the account remembers the level the user picked ({target / 100:.0f}% LTV)")
+
+    p0_now, _, _ = feed("TSLA")
+    walk("TSLA", p0_now * 12 // 10)  # the stock gains 20%
+    debt_before = f["debt"]
+    send("buyer", acct, "rebalance(address)", A["TSLA"])  # anyone can run the agent
+    f = earn_pos("frank")
+    ok(f["debt"] > debt_before and abs(f["debt"] - f["value"] // 4) < f["value"] // 200,
+       f"agent borrowed the difference: debt {debt_before / E6:.2f} -> {f['debt'] / E6:.2f} USDG, back at 25%")
+
+    dex = C.get("testDexRouter")
+    if dex:
+        stock_before = f["collateral"]
+        _fund_yield = 200 * E6
+        send("admin", T["USDG"], "faucet(address,uint256)", ADDR["admin"], str(_fund_yield))
+        send("admin", T["USDG"], "transfer(address,uint256)", C["queue"], str(_fund_yield))
+        send("admin", C["queue"], "settleYield(uint256)", str(_fund_yield))
+        profit = (num(call(acct, "redeemableUsdg()(uint256)")) - earn_pos("frank")["debt"]) * 999 // 1000
+        if profit > E6:
+            price = num(call(A["TSLA"], "wrapperPrice()(uint256)"))
+            data = subprocess.check_output(
+                ["cast", "calldata", "swap(address,uint256,uint256)", T["wTSLAx"], str(profit), str(price)],
+                text=True).strip()
+            send("buyer", acct, "compoundIntoStock(address,uint256,address,address,bytes,uint256)",
+                 A["TSLA"], str(profit), dex, dex, data, str(profit * 10**18 // price * 98 // 100))
+            grown = earn_pos("frank")["collateral"]
+            ok(grown > stock_before,
+               f"the vault yield came back as stock: {stock_before / E18:.6f} -> {grown / E18:.6f} wTSLAx")
+        else:
+            ok(True, f"no yield surplus to compound yet ({profit / E6:.2f} USDG)")
+    walk("TSLA", p0_now)
+
+    step("17. OKX rail: deposit the base xStock, close back to it")
     base = call(T["wTSLAx"], "asset()(address)")
     if MODE == "testnet":
         send("buyer", base, "faucet(address,uint256)", ADDR["buyer"], str(5 * E18))
@@ -483,7 +526,7 @@ def part_b():
     ok(back >= base_before - 10,
        f"closed back into the base token ({back / E18:.6f}), the form an OKX deposit takes")
 
-    step("17. Dave withdraws with interest")
+    step("18. Dave withdraws with interest")
     before = usdg("dave")
     send("dave", C["pool"], "redeem(uint256,address,address)", str(dave_shares), ADDR["dave"], ADDR["dave"])
     got = usdg("dave") - before

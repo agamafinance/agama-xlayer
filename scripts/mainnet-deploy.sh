@@ -9,7 +9,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
-RPC=https://rpc.xlayer.tech
+RPC=https://xlayerrpc.okx.com
 USDG=0x4ae46a509F6b1D9056937BA4500cb143933D2dc8
 SEED_USDG=${SEED_USDG:-200000000}      # 200 USDG of lender liquidity
 SEED_SP=${SEED_SP:-100000000}          # 100 USDG staked in the stability pool

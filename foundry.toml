@@ -34,7 +34,7 @@ depth = 40
 fail_on_revert = false
 
 [rpc_endpoints]
-xlayer = "https://rpc.xlayer.tech"
+xlayer = "https://xlayerrpc.okx.com"
 xlayer_testnet = "https://testrpc.xlayer.tech/terigon"
 
 [fmt]

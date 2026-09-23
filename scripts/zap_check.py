@@ -19,7 +19,7 @@ import okx_dex  # noqa: E402
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # The OKX aggregator signs its market-maker quotes over chain id 196, so the
 # zap can only be exercised on a fork that KEEPS chain id 196:
-#   anvil --fork-url https://rpc.xlayer.tech --chain-id 196 --port 8546
+#   anvil --fork-url https://xlayerrpc.okx.com --chain-id 196 --port 8546
 #   DEPLOY_FILE=196-fork.json forge script script/Deploy.s.sol --rpc-url http://127.0.0.1:8546 --broadcast
 RPC = os.environ.get("RPC_URL", "http://127.0.0.1:8546")
 DEP = json.load(open(os.path.join(ROOT, "deployments", os.environ.get("DEPLOY_FILE", "196-fork.json"))))

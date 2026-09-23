@@ -23,13 +23,21 @@ One tick does three jobs:
 2. Protection. For every Agama account: HF < 1.15 with free vault shares ->
    `softDeleverage`; HF < 1 -> `ArrowStabilityPool.liquidate`.
 
-3. Vault CAPO snapshot, once a day (permissionless `snapshot()`).
+3. Agents. The user deposits a stock and never touches it again:
+   - `rebalance` keeps every position at the LTV its owner picked (the stock
+     went up: borrow more and put it in the vault; it went down: repay from the
+     yield buffer, never from the stock).
+   - `compoundIntoStock` turns the vault yield above the debt into MORE STOCK
+     and adds it as collateral, through the swap venue the zap allowlists.
+   Both are permissionless: the keeper is convenience, not control.
+
+4. Vault CAPO snapshot, once a day (permissionless `snapshot()`).
 
 Requires Foundry's `cast` on PATH. Config via env:
-  RPC_URL (default https://rpc.xlayer.tech), DEPLOYMENT (deployments/196.json),
+  RPC_URL (default https://xlayerrpc.okx.com), DEPLOYMENT (deployments/196.json),
   KEEPER_KEY (private key with KEEPER_ROLE), ARB_RPC_URL, DS_API_KEY, DS_API_SECRET,
   DS_HOST (default https://api.dataengine.chain.link), INTERVAL (seconds, default 300),
-  ONCE=1 to run a single tick, JOBS=redstone,prices,protection,snapshot to pick jobs.
+  ONCE=1 to run a single tick, JOBS=redstone,prices,protection,agents,snapshot to pick jobs.
 """
 
 import hashlib
@@ -44,7 +52,7 @@ from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-RPC = os.environ.get("RPC_URL", "https://rpc.xlayer.tech")
+RPC = os.environ.get("RPC_URL", "https://xlayerrpc.okx.com")
 ARB_RPC = os.environ.get("ARB_RPC_URL", "https://arb1.arbitrum.io/rpc")
 KEY = os.environ.get("KEEPER_KEY", "")
 DEPLOYMENT = os.environ.get("DEPLOYMENT", os.path.join(ROOT, "deployments", "196.json"))
@@ -273,6 +281,84 @@ def tick_protection(dep):
                     log(f"soft-deleveraged {acct[:10]} (HF {hf / RAY:.3f})")
 
 
+def _swap_calldata(dep, ticker, usdg_amount, account):
+    """Calldata that buys `ticker` with `usdg_amount`, and the minimum out.
+
+    Testnet has no aggregator, so the deployment carries a stand-in router
+    priced at the oracle; mainnet uses the OKX DEX aggregator.
+    """
+    wrapper = dep["tokens"]["w" + ticker + "x"]
+    adapter = dep["adapters"][ticker]
+    price = first_int(call(adapter, "wrapperPrice()(uint256)"))
+    test_dex = dep["contracts"].get("testDexRouter")
+    if not test_dex and dep["chainId"] != 196:
+        # A chain-1961 fork keeps mainnet state but not its chain id, and the
+        # aggregator signs its routes for 196: no venue the swap can use.
+        raise RuntimeError("no swap venue on this deployment")
+    if test_dex:
+        data = subprocess.check_output(
+            ["cast", "calldata", "swap(address,uint256,uint256)", wrapper, str(usdg_amount), str(price)],
+            text=True).strip()
+        return test_dex, test_dex, data, (usdg_amount * 10**18 // price) * 98 // 100
+    sys.path.insert(0, os.path.join(ROOT, "scripts"))
+    import okx_dex  # noqa: E402
+
+    swap = okx_dex.swap(dep["tokens"]["USDG"], wrapper, str(usdg_amount), account)
+    spender = okx_dex.approve(dep["tokens"]["USDG"], str(usdg_amount))["dexContractAddress"]
+    return swap["tx"]["to"], spender, swap["tx"]["data"], int(swap["tx"]["minReceiveAmount"])
+
+
+def tick_agents(dep):
+    """Keep every position on its target, and grow the stock with the yield."""
+    factory = dep["contracts"]["factory"]
+    pool = dep["contracts"]["pool"]
+    n = first_int(call(factory, "accountCount()(uint256)"))
+    for i in range(n):
+        acct = call(factory, "accounts(uint256)(address)", str(i))
+        for ticker in TICKERS:
+            adapter = dep["adapters"][ticker]
+            if first_int(call(acct, "targetLtvBps(address)(uint256)", adapter)) == 0:
+                continue
+            # Only send when the position is actually off target and the
+            # account can act on it: a keeper that fires blind wastes gas and
+            # fills the log with reverts.
+            target = first_int(call(acct, "targetLtvBps(address)(uint256)", adapter))
+            value = first_int(call(adapter, "getAssetValue(address,bytes)(uint256)", acct, "0x"))
+            debt = first_int(call(pool, "getPositionScaledDebt(address,address,bytes)(uint256)",
+                                  adapter, acct, "0x"))
+            if value:
+                wanted = value * target // 10_000
+                band = value // 100
+                buffer_ = first_int(call(acct, "redeemableUsdg()(uint256)"))
+                actionable = (wanted > debt + band) or (debt > wanted + band and buffer_ > 0)
+                if actionable:
+                    try:
+                        send(acct, "rebalance(address)", adapter)
+                        log(f"rebalanced {acct[:10]} on {ticker}: {debt / 1e6:.2f} -> "
+                            f"{first_int(call(pool, 'getPositionScaledDebt(address,address,bytes)(uint256)', adapter, acct, '0x')) / 1e6:.2f} USDG")
+                    except RuntimeError as e:
+                        log(f"rebalance {acct[:10]} {ticker}: {str(e)[:90]}")
+
+            debt = first_int(call(pool, "getPositionScaledDebt(address,address,bytes)(uint256)",
+                                  adapter, acct, "0x"))
+            have = first_int(call(acct, "redeemableUsdg()(uint256)"))
+            profit = have - debt if have > debt else 0
+            profit = profit * 999 // 1000  # the surplus shrinks with interest before inclusion
+            if profit < 10**6:  # under 1 USDG, not worth the gas
+                continue
+            try:
+                target_, spender, data, min_out = _swap_calldata(dep, ticker, profit, acct)
+            except RuntimeError as e:
+                log(f"compound skipped: {e}")
+                continue
+            try:
+                send(acct, "compoundIntoStock(address,uint256,address,address,bytes,uint256)",
+                     adapter, str(profit), target_, spender, data, str(min_out))
+                log(f"compounded {profit / 1e6:.2f} USDG of yield into {ticker} for {acct[:10]}")
+            except RuntimeError as e:
+                log(f"compound {acct[:10]} {ticker}: {str(e)[:90]}")
+
+
 def tick_snapshot(dep):
     va = dep["adapters"]["VAULT"]
     last = first_int(call(va, "snapshotAt()(uint256)"))
@@ -285,9 +371,9 @@ def main():
     dep = json.load(open(DEPLOYMENT))
     log("keeper on chain", dep["chainId"], "source:", "Data Streams" if DS_KEY else "Chainlink Arbitrum relay")
     while True:
-        jobs = {"redstone": tick_redstone, "prices": tick_prices,
-                "protection": tick_protection, "snapshot": tick_snapshot}
-        selected = os.environ.get("JOBS", "redstone,prices,protection,snapshot").split(",")
+        jobs = {"redstone": tick_redstone, "prices": tick_prices, "protection": tick_protection,
+                "agents": tick_agents, "snapshot": tick_snapshot}
+        selected = os.environ.get("JOBS", "redstone,prices,protection,agents,snapshot").split(",")
         for job in (jobs[j] for j in selected):
             try:
                 job(dep)
