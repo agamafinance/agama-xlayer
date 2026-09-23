@@ -41,7 +41,7 @@ flowchart LR
       XA[ArrowXStockAdapter x4]
       VA[ArrowVaultShareAdapter]
       SP[ArrowStabilityPool]
-      O[DataStreamsStockOracle]
+      O[RedStoneStockOracle]
     end
     L[USDG lenders] -->|supply| P
     S --> ER --> AC
@@ -52,8 +52,10 @@ flowchart LR
     VA --> P
     P -->|borrow USDG| AC
     AC -->|deposit| V
+    AGT[Agents<br/>anyone can run them] -->|rebalance to your level| AC
+    AGT -->|swap the yield into more stock| AC
     O -->|price + market status| XA
-    CL[Chainlink Data Streams<br/>or Chainlink relay] --> O
+    CL[RedStone signed prices<br/>+ Chainlink relay for SPY] --> O
     SP -->|liquidate, buy back| P
 ```
 
@@ -127,38 +129,40 @@ All contracts are source-verified on the OKLink explorer. X Layer testnet has no
 
 | Contract | Address |
 |---|---|
-| ArrowLendingPool | [`0x6199f7C36661BbA1d4B6fF626a2AC298C77624d0`](https://www.okx.com/web3/explorer/xlayer-test/address/0x6199f7C36661BbA1d4B6fF626a2AC298C77624d0) |
-| ArrowStabilityPool | [`0x6D8871d6f803e886A16839b8C90a3237f643eaFd`](https://www.okx.com/web3/explorer/xlayer-test/address/0x6D8871d6f803e886A16839b8C90a3237f643eaFd) |
-| DataStreamsStockOracle | [`0xa6dF3Af29e042A05c5F745D27c4d384316822a1b`](https://www.okx.com/web3/explorer/xlayer-test/address/0xa6dF3Af29e042A05c5F745D27c4d384316822a1b) |
-| ArrowXStockAdapter (TSLA) | [`0xFfB857B13aD1111778Fe2357cC824692bC4C657b`](https://www.okx.com/web3/explorer/xlayer-test/address/0xFfB857B13aD1111778Fe2357cC824692bC4C657b) |
-| ArrowXStockAdapter (NVDA) | [`0x1273167cF8C1b000b7326cAeb49CF66Ca82e5401`](https://www.okx.com/web3/explorer/xlayer-test/address/0x1273167cF8C1b000b7326cAeb49CF66Ca82e5401) |
-| ArrowXStockAdapter (SPY) | [`0xCD407365880b44A5a5bA662b4Cb6b09ebd9342fe`](https://www.okx.com/web3/explorer/xlayer-test/address/0xCD407365880b44A5a5bA662b4Cb6b09ebd9342fe) |
-| ArrowXStockAdapter (AAPL) | [`0xE069c2c3bF51F474f00145DF15565137724556C6`](https://www.okx.com/web3/explorer/xlayer-test/address/0xE069c2c3bF51F474f00145DF15565137724556C6) |
-| ArrowVaultShareAdapter | [`0x26A7bafb325b41febd6a4A2B810cB9Ab87A4A0dD`](https://www.okx.com/web3/explorer/xlayer-test/address/0x26A7bafb325b41febd6a4A2B810cB9Ab87A4A0dD) |
-| AgamaEarnRouter | [`0x2A7D5b533609e012C20dB6A14D468c2433aE11f6`](https://www.okx.com/web3/explorer/xlayer-test/address/0x2A7D5b533609e012C20dB6A14D468c2433aE11f6) |
-| AgamaAmplifyRouter | [`0x7537433c56d7a1fBE41a679078DC869AF52EE507`](https://www.okx.com/web3/explorer/xlayer-test/address/0x7537433c56d7a1fBE41a679078DC869AF52EE507) |
-| AgamaZapRouter | [`0x72b4e1FE2B83B0F8A9b9CefA24a9BdEa6FDCe3f1`](https://www.okx.com/web3/explorer/xlayer-test/address/0x72b4e1FE2B83B0F8A9b9CefA24a9BdEa6FDCe3f1) |
-| AgamaAccountFactory | [`0x85d40Fd14320377F0dea30FE221DBBB0379B58a0`](https://www.okx.com/web3/explorer/xlayer-test/address/0x85d40Fd14320377F0dea30FE221DBBB0379B58a0) |
-| agUSDQueue (Agama vault) | [`0x8aFae512e6B1C261C1f0A1e6bc07417B6296A8e8`](https://www.okx.com/web3/explorer/xlayer-test/address/0x8aFae512e6B1C261C1f0A1e6bc07417B6296A8e8) |
-| sagUSD (Agama vault share) | [`0xec6bb91ECa4847E087c3065A8Da93199602DBF0f`](https://www.okx.com/web3/explorer/xlayer-test/address/0xec6bb91ECa4847E087c3065A8Da93199602DBF0f) |
-| tUSDG (testnet stand-in) | [`0x5B1fd8A3ceC4c47cd078E5e216b8e9621B15355B`](https://www.okx.com/web3/explorer/xlayer-test/address/0x5B1fd8A3ceC4c47cd078E5e216b8e9621B15355B) |
-| wTSLAx (testnet stand-in) | [`0x2e25d320Ad637F46Ae34443d98F6BE47b85310Db`](https://www.okx.com/web3/explorer/xlayer-test/address/0x2e25d320Ad637F46Ae34443d98F6BE47b85310Db) |
-| TestDexRouter (testnet stand-in) | [`0x5d3D8EEac2CEE90e06C0892A9a6A120a5ae740A6`](https://www.okx.com/web3/explorer/xlayer-test/address/0x5d3D8EEac2CEE90e06C0892A9a6A120a5ae740A6) |
+| ArrowLendingPool | [`0xb258A029917F3bB0d48166f5395043154A784b6C`](https://www.okx.com/web3/explorer/xlayer-test/address/0xb258A029917F3bB0d48166f5395043154A784b6C) |
+| ArrowStabilityPool | [`0xB29bA7cDf2a33d31786EC5c3A11F5DBCe5948a3e`](https://www.okx.com/web3/explorer/xlayer-test/address/0xB29bA7cDf2a33d31786EC5c3A11F5DBCe5948a3e) |
+| RedStoneStockOracle | [`0xE5926fAD18C2DCA67efA2Fe11246A187397b66F6`](https://www.okx.com/web3/explorer/xlayer-test/address/0xE5926fAD18C2DCA67efA2Fe11246A187397b66F6) |
+| ArrowXStockAdapter (TSLA) | [`0x9d65Bc182b2215D36671afB9002b808A72e24520`](https://www.okx.com/web3/explorer/xlayer-test/address/0x9d65Bc182b2215D36671afB9002b808A72e24520) |
+| ArrowXStockAdapter (NVDA) | [`0xB5B202bA6dE5FA7D33349bB62d08B2cBf6331364`](https://www.okx.com/web3/explorer/xlayer-test/address/0xB5B202bA6dE5FA7D33349bB62d08B2cBf6331364) |
+| ArrowXStockAdapter (SPY) | [`0xF4dbcF7C6D8B0a89DCC8aA96500516396A89BD89`](https://www.okx.com/web3/explorer/xlayer-test/address/0xF4dbcF7C6D8B0a89DCC8aA96500516396A89BD89) |
+| ArrowXStockAdapter (AAPL) | [`0x73933f19D51017c0603DdDF32698c1C019E377c6`](https://www.okx.com/web3/explorer/xlayer-test/address/0x73933f19D51017c0603DdDF32698c1C019E377c6) |
+| ArrowVaultShareAdapter | [`0x43E03b5cc3017756701d8dD4B4BE149953A1e9df`](https://www.okx.com/web3/explorer/xlayer-test/address/0x43E03b5cc3017756701d8dD4B4BE149953A1e9df) |
+| AgamaEarnRouter | [`0xE1CE8bC8DA4d531235b7B953c88FaDdD6D2107d8`](https://www.okx.com/web3/explorer/xlayer-test/address/0xE1CE8bC8DA4d531235b7B953c88FaDdD6D2107d8) |
+| AgamaAmplifyRouter | [`0x64d40ccd6F52adC37c0bb5044BB108FD010526D4`](https://www.okx.com/web3/explorer/xlayer-test/address/0x64d40ccd6F52adC37c0bb5044BB108FD010526D4) |
+| AgamaZapRouter | [`0x3F8C419212E286ac8aAf81eaBb52084b03498a24`](https://www.okx.com/web3/explorer/xlayer-test/address/0x3F8C419212E286ac8aAf81eaBb52084b03498a24) |
+| AgamaAccountFactory | [`0xFDC190129e819ebE8eedcD12DC1C8b03B92CeA79`](https://www.okx.com/web3/explorer/xlayer-test/address/0xFDC190129e819ebE8eedcD12DC1C8b03B92CeA79) |
+| agUSDQueue (Agama vault) | [`0xA2d2DCef144c50ac54dF3CB213B6c91d6cb43B05`](https://www.okx.com/web3/explorer/xlayer-test/address/0xA2d2DCef144c50ac54dF3CB213B6c91d6cb43B05) |
+| sagUSD (Agama vault share) | [`0xD19c6e8E05e2C6f43Cf954c2369f644644Bf0208`](https://www.okx.com/web3/explorer/xlayer-test/address/0xD19c6e8E05e2C6f43Cf954c2369f644644Bf0208) |
+| tUSDG (testnet stand-in) | [`0x22d746ecf7B435AF2d2533005D449aF9AE667197`](https://www.okx.com/web3/explorer/xlayer-test/address/0x22d746ecf7B435AF2d2533005D449aF9AE667197) |
+| wTSLAx (testnet stand-in) | [`0x2578339E88CfcF25889Ce41841fa243104c789b0`](https://www.okx.com/web3/explorer/xlayer-test/address/0x2578339E88CfcF25889Ce41841fa243104c789b0) |
+| TestDexRouter (testnet stand-in) | [`0xA1589F910D45A7CC37D0B66338bE67A1130e77F4`](https://www.okx.com/web3/explorer/xlayer-test/address/0xA1589F910D45A7CC37D0B66338bE67A1130e77F4) |
 
 Full list: [`deployments/1952.json`](deployments/1952.json).
 
 The end-to-end scenario below ran against this deployment with real transactions (`python3 scripts/e2e.py testnet`):
 
 ```
-2. Alice: Earn on 10 wTSLAx at 25% LTV     borrowed 939.56 USDG, HF 1.600, 939.56 USDG parked in the vault
-3. Carol: Earn at 30% LTV, no buffer       debt 1127.47 USDG
+2. Alice: Earn on 10 wTSLAx at 25% LTV     borrowed 948.90 USDG, HF 1.600, parked in the Agama vault
 4. Bob: Amplify 1,000 USDG at 3x           exposure 3000.00, debt 2000.00, HF 1.164
-5. vault yield settled                     Bob's exposure 3000.00 -> 3013.50 USDG
-6. TSLA 375.82 -> 268.71                   Alice HF 1.144, Carol HF 0.953
+6. TSLA falls 28%                          Alice HF 1.144, Carol HF 0.953
 7. keeper                                  Alice soft-deleveraged to HF 1.400, keeps all 10 wTSLAx
                                            Carol liquidated partially: SP seized 4.615, Carol keeps 5.385
 8. buyer                                   4.615 wTSLAx bought at a 3% discount
-9. exits                                   Bob 1013.50 USDG back for 1,000 in, Alice 10 wTSLAx back
+15. Buy and Earn                           300 USDG bought 0.788017 wTSLAx and opened the position, one transaction
+16. agents, the stock rallies              debt 948.90 -> 1138.68 USDG, back at the 25% the user picked
+16. agents, the yield compounds            10.000000 -> 10.189642 wTSLAx, no user action
+17. OKX rail                               5 base xStock in, closed back into 5.000000 base xStock
+18. Dave, the lender                       redeemed 1000.000003 USDG for 1,000 supplied
 E2E PASSED
 ```
 

@@ -8,8 +8,8 @@ the testnet RPC; `eth_sendTransaction` is signed and broadcast by `cast` with a
 fresh throwaway key funded by the deployer, so every click is a real testnet
 transaction. Screenshots land in ../agama-xlayer-local/ui-e2e/.
 
-Flow: page loads with live prices -> connect -> faucet -> Earn open -> Buy and Earn -> Amplify
-open -> Amplify close -> Earn close -> Arrow supply -> Arrow withdraw.
+Flow: page loads with live prices -> connect -> faucet -> Earn open -> Buy and Earn -> agents
+(rebalance, compound) -> Amplify open -> Amplify close -> Earn close -> Arrow supply and withdraw.
 Fails on any page error or any transaction error shown by the app.
 """
 
@@ -122,6 +122,55 @@ INJECT = """
 """
 
 
+DEP = json.load(open(os.path.join(ROOT, "deployments", "1952.json")))
+
+
+def call(to, sig, *args):
+    out = subprocess.check_output(["cast", "call", to, sig, *args, "--rpc-url", RPC], text=True).strip()
+    return out
+
+
+def admin_send(to, sig, *args):
+    r = subprocess.run(["cast", "send", to, sig, *args, "--private-key", admin_key(), "--rpc-url", RPC,
+                        "--gas-limit", "3000000"], capture_output=True, text=True)
+    if r.returncode != 0:  # the key must never reach a log line
+        raise SystemExit(f"   FAIL: admin {sig.split('(')[0]}: {r.stderr.strip()[-200:]}")
+
+
+def tsla_price():
+    parts = call(DEP["contracts"]["oracle"], "feed(bytes32)((uint128,uint64,bool,bool))",
+                 "0x" + "TSLA".encode().hex().ljust(64, "0")).strip("()").split(", ")
+    return int(parts[0].split()[0])
+
+
+def push_tsla(price):
+    """Move the price the way the keeper does, in steps inside the deviation cap."""
+    cur = tsla_price()
+    while cur != price:
+        nxt = max(price, cur * 88 // 100) if price < cur else min(price, cur * 112 // 100)
+        admin_send(DEP["contracts"]["oracle"], "push(bytes32,uint256,uint64,bool)",
+                   "0x" + "TSLA".encode().hex().ljust(64, "0"), str(nxt), str(int(time.time())), "true")
+        cur = nxt
+
+
+def wait_position(pred, timeout=60):
+    """Poll the chain until the position satisfies `pred` (the RPC is load balanced)."""
+    t0 = time.time()
+    p = earn_position()
+    while time.time() - t0 < timeout and not pred(p):
+        time.sleep(3)
+        p = earn_position()
+    return p
+
+
+def earn_position():
+    out = call(DEP["contracts"]["earnRouter"],
+               "position(address,address)((address,uint256,uint256,uint256,uint256,uint256,uint256,bool,uint256))",
+               ACCOUNT, DEP["adapters"]["TSLA"])
+    f = [x.split()[0] for x in out.strip("()").split(", ")]
+    return {"account": f[0], "collateral": int(f[1]), "value": int(f[2]), "debt": int(f[3])}
+
+
 def step(msg):
     print(f"\n\033[1m== {msg}\033[0m", flush=True)
 
@@ -175,14 +224,16 @@ async def click_tx(page, name, scope=None, timeout=120):
 
 async def main():
     step(f"0. funding the UI wallet {ACCOUNT}")
+    # Gas is ~0.02 gwei here, so 0.001 OKB is a whole run with room to spare, and
+    # the deployer keeps its reserve for the keeper (testnet OKB comes from a faucet).
     bal = int(subprocess.check_output(["cast", "balance", ACCOUNT, "--rpc-url", RPC], text=True).split()[0])
-    if bal < 3 * 10**15:
+    if bal < 5 * 10**14:
         # Never let the key reach an exception message or a log line.
-        r = subprocess.run(["cast", "send", ACCOUNT, "--value", str(5 * 10**15), "--private-key", admin_key(),
+        r = subprocess.run(["cast", "send", ACCOUNT, "--value", str(10**15), "--private-key", admin_key(),
                             "--rpc-url", RPC], capture_output=True, text=True)
         if r.returncode != 0:
             raise SystemExit(f"   FAIL: funding the UI wallet: {r.stderr.strip()[-200:]}")
-    ok(True, "gas funded (0.005 OKB)")
+    ok(True, "gas funded (0.001 OKB)")
 
     async with async_playwright() as p:
         browser = await p.chromium.launch()
@@ -262,7 +313,36 @@ async def main():
         ok(grew, "position grew from the bought stock")
         await shot(page, "03c-buy-position")
 
-        step("6. Amplify: 300 USDG at the default leverage")
+        step("6. Agents: the stock moves, the position follows, the yield becomes stock")
+        p0 = earn_position()
+        start = tsla_price()
+        push_tsla(start * 12 // 10)                      # the stock gains 20%
+        await page.reload()
+        await page.wait_for_timeout(6000)
+        await shot(page, "03d-agent-offtarget")
+        await click_tx(page, "Rebalance now")
+        moved = await asyncio.to_thread(wait_position, lambda q: q["debt"] > p0["debt"])
+        ok(moved["debt"] > p0["debt"],
+           f"the agent borrowed the difference from the button: debt {p0['debt'] / 1e6:.2f} "
+           f"-> {moved['debt'] / 1e6:.2f} USDG")
+
+        # Yield the vault has earned, so there is a surplus above the debt to compound.
+        admin_send(DEP["tokens"]["USDG"], "faucet(address,uint256)",
+                   subprocess.check_output(["cast", "wallet", "address", admin_key()], text=True).strip(),
+                   str(200 * 10**6))
+        admin_send(DEP["tokens"]["USDG"], "transfer(address,uint256)", DEP["contracts"]["queue"], str(200 * 10**6))
+        admin_send(DEP["contracts"]["queue"], "settleYield(uint256)", str(200 * 10**6))
+        stock_before = moved["collateral"]
+        await page.reload()
+        await page.wait_for_timeout(8000)
+        await click_tx(page, "Compound yield into stock")
+        grown = await asyncio.to_thread(wait_position, lambda q: q["collateral"] > stock_before)
+        ok(grown["collateral"] > stock_before,
+           f"the yield came back as stock: {stock_before / 1e18:.6f} -> {grown['collateral'] / 1e18:.6f} wTSLAx")
+        await shot(page, "03e-agent-grown")
+        push_tsla(start)
+
+        step("7. Amplify: 300 USDG at the default leverage")
         await page.goto(BASE + "/amplify")
         await page.wait_for_timeout(5000)
         await page.fill("#amp-amount", "300")
@@ -274,11 +354,11 @@ async def main():
         ok(shown, "Amplify position shown (exposure, debt, leverage)")
         await shot(page, "04-amplify-position")
 
-        step("7. Amplify: close to USDG")
+        step("8. Amplify: close to USDG")
         await click_tx(page, "Close to USDG")
         await shot(page, "05-amplify-closed")
 
-        step("8. Earn: close")
+        step("9. Earn: close")
         await page.goto(BASE + "/")
         await page.wait_for_timeout(6000)
         sec = page.locator("section[aria-labelledby=pos-title]")
@@ -300,7 +380,7 @@ async def main():
         ok(closed, f"Earn closed via '{label.strip()}': the stock comes back in the form an OKX deposit takes")
         await shot(page, "06-earn-closed")
 
-        step("9. Arrow: supply then withdraw 100 USDG")
+        step("10. Arrow: supply then withdraw 100 USDG")
         await page.goto(BASE + "/lend")
         await page.wait_for_timeout(5000)
         await page.fill("#lend-amount", "100")
