@@ -10,6 +10,7 @@ import {
   type Market,
 } from '@/lib/xlayer/useXLayer';
 import { useXLayerWallet } from '@/lib/xlayer/WalletProvider';
+import { ago, useDepositBaseline, useLastAgentAction } from '@/lib/xlayer/agents';
 
 const pct = (bps: bigint | undefined) => (bps === undefined ? '—' : `${Number(bps) / 100}%`);
 const usd = (v: bigint | undefined) =>
@@ -86,6 +87,7 @@ export default function XLayerEarnPage() {
       await ensureAllowance(address, TOKENS.USDG, ADDR.earnRouter, topUp);
       await send(address, ADDR.earnRouter, earnRouterAbi, 'closeToBaseWithTopUp', [m.adapter, topUp]);
       setStatus('Done');
+      resetBaseline();
       bump();
     } catch (e: unknown) {
       setStatus(errorText(e));
@@ -95,7 +97,11 @@ export default function XLayerEarnPage() {
   }
 
   const has = !!position?.hasPosition;
-  const grown = has && position ? position.collateral : undefined;
+  const { grown, reset: resetBaseline } = useDepositBaseline(
+    `agama.xlayer.deposited.${address ?? 'none'}.${m?.adapter ?? 'none'}`,
+    position?.collateral,
+  );
+  const lastAction = useLastAgentAction(has ? position?.account : undefined, tick);
 
   return (
     <>
@@ -223,7 +229,11 @@ export default function XLayerEarnPage() {
               ) : (
                 <>
                   <div className="mt-4 flex flex-wrap gap-8">
-                    <Stat label={`Your ${m?.stock.wrapper}`} value={qty(grown)} sub={usd(position?.collateralValue)} />
+                    <Stat
+                      label={`Your ${m?.stock.wrapper}`}
+                      value={qty(position?.collateral)}
+                      sub={grown !== undefined ? `+${qty(grown)} added by the agents` : usd(position?.collateralValue)}
+                    />
                     <Stat
                       label="Health factor"
                       value={position && position.healthFactorRay > 0n ? (Number(position.healthFactorRay) / Number(RAY)).toFixed(2) : 'No debt'}
@@ -235,10 +245,29 @@ export default function XLayerEarnPage() {
                     <Row label="Yield buffer" value={usd(position?.freeSharesValue)} />
                     <Row label="Target level" value={pct(position?.targetLtvBps)} />
                   </dl>
-                  <p className="mt-4 rounded-2xl border border-[#254839]/12 bg-white/60 p-4 text-[13px] text-fg-muted">
-                    Agents hold this position at your level and turn the vault yield into more stock.
-                    Anyone can run them, so you never have to come back.
-                  </p>
+                  <div className="mt-4 rounded-2xl border border-[#254839]/12 bg-white/60 p-4">
+                    <div className="flex items-center gap-2">
+                      <span className="relative flex h-2 w-2" aria-hidden>
+                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#254839] opacity-60" />
+                        <span className="relative inline-flex h-2 w-2 rounded-full bg-[#254839]" />
+                      </span>
+                      <span className="text-[13px] font-medium text-fg">Agents running</span>
+                    </div>
+                    <p className="mt-1.5 text-[13px] text-fg-muted">
+                      The stock moves, the debt follows it back to {pct(position?.targetLtvBps)}. The vault
+                      yield above that debt is bought back as more stock. Nothing here is yours to do, and
+                      nothing here is ours to control: the calls are open to anyone.
+                    </p>
+                    <p className="mt-2 text-[12px] text-fg-muted">
+                      {lastAction
+                        ? lastAction.kind === 'rebalance'
+                          ? `Last action: debt ${(lastAction.debtDelta ?? 0n) >= 0n ? '+' : '-'}${usd(
+                              (lastAction.debtDelta ?? 0n) < 0n ? -(lastAction.debtDelta ?? 0n) : lastAction.debtDelta ?? 0n,
+                            ).replace('$', '')} USDG, ${ago(lastAction.at)}`
+                          : `Last action: ${qty(lastAction.stockAdded)} ${m?.stock.wrapper} bought with the yield, ${ago(lastAction.at)}`
+                        : 'No action in the last 100 blocks. The position is on target.'}
+                    </p>
+                  </div>
                   <button
                     onClick={close}
                     disabled={busy}
