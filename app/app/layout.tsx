@@ -26,7 +26,8 @@ export default function RootLayout({children}: {children: ReactNode}) {
           <main className="mx-auto w-full max-w-[1180px] px-4 pb-16 pt-6 md:px-6">{children}</main>
           <footer className="mx-auto w-full max-w-[1180px] px-4 pb-10 text-xs text-dim md:px-6">
             Lending markets by Arrow Finance, deployed on X Layer by Agama as part of the Arrow x Agama
-            partnership. Stock prices from the Chainlink Data Streams oracle.
+            partnership. Stock prices from RedStone signed reports, verified on-chain in our own oracle;
+            X Layer has no equity feed of its own.
           </footer>
         </Providers>
       </body>
