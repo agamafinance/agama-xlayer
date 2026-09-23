@@ -15,6 +15,8 @@ Built for OKX Dev Day 2026, track **Build a Market** (tokenized stocks and RWA o
 
 **Live app (X Layer testnet):** https://app.agama.finance/xlayer (the "Get test tokens" button mints test USDG and xStocks; test OKB for gas at https://web3.okx.com/xlayer/faucet).
 
+It is not a demo page: the front is the production Agama app, forked whole into `web/`, with X Layer added as one more network beside Stellar, Sui, Starknet, MagicBlock and Arbitrum. Same shell, same design, same connect flow. Open the network menu and switch.
+
 ## Why X Layer
 
 - **xStocks are native on X Layer**: 928 tokenized equities, about 173M$ of market cap. No lending market accepts them as collateral today (Aave on X Layer lists none, and there is no Morpho or Euler).
@@ -178,7 +180,7 @@ E2E PASSED
 
 ### X Layer mainnet (chain 196)
 
-Not deployed: the hackathon demo lives on testnet so anyone can try it with the faucet. Mainnet is still where the tests run: the 54 Foundry tests and the same end-to-end scenario execute on a fork of X Layer mainnet against the real USDG, the real Backed wrappers and the real OKX DEX aggregator (`./scripts/fork-reset.sh && python3 scripts/e2e.py fork`, and `scripts/zap_check.py`). `script/Deploy.s.sol` and `scripts/mainnet-deploy.sh` are ready for a guarded launch after the hackathon.
+Not deployed: the hackathon demo lives on testnet so anyone can try it with the faucet. Mainnet is still where the tests run: the 69 Foundry tests and the same end-to-end scenario execute on a fork of X Layer mainnet against the real USDG, the real Backed wrappers and the real OKX DEX aggregator (`./scripts/fork-reset.sh && python3 scripts/e2e.py fork`, and `scripts/zap_check.py`). `script/Deploy.s.sol` and `scripts/mainnet-deploy.sh` are ready for a guarded launch after the hackathon.
 
 ## OKX integrations
 
