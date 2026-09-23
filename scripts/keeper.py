@@ -108,12 +108,23 @@ def call(to, sig, *args, rpc=RPC):
 
 
 def send(to, sig, *args):
-    """`sig` may be a signature plus args, or a full calldata hex blob."""
+    """`sig` may be a signature plus args, or a full calldata hex blob.
+
+    Always checks the receipt: a mined-but-reverted transaction must never be
+    reported as a success (a keeper that lies about a liquidation is worse than
+    one that stops). Gas is set explicitly because estimation is tight on the
+    loop-heavy paths and blocks here hold 200M+.
+    """
     if not KEY:
         raise RuntimeError("KEEPER_KEY not set")
     for attempt in range(6):
         try:
-            return cast("send", to, sig, *args, "--private-key", KEY, "--json")
+            out = cast("send", to, sig, *args, "--private-key", KEY,
+                       "--gas-limit", "6000000", "--json")
+            receipt = json.loads(out)
+            if receipt.get("status") not in ("0x1", 1, "1"):
+                raise RuntimeError(f"reverted: {receipt.get('transactionHash')}")
+            return out
         except RuntimeError as e:
             # Load-balanced public RPCs can serve a stale nonce: wait and retry.
             if attempt < 5 and ("nonce too low" in str(e) or "already known" in str(e)):

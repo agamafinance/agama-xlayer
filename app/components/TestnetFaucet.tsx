@@ -1,14 +1,15 @@
 "use client";
 
 import {useState} from "react";
-import {parseAbi, type Address} from "viem";
-import {useAccount, useChainId} from "wagmi";
+import {erc20Abi, parseAbi, zeroAddress, type Address} from "viem";
+import {useAccount, useChainId, useReadContracts} from "wagmi";
 
 import {OKB_TESTNET_FAUCET, TESTNET_ID, txUrl} from "@/lib/chains";
 import {getDeployment, isForkDeployment} from "@/lib/deployment";
 import {useTx} from "@/lib/tx";
 
 const faucetAbi = parseAbi(["function faucet(address to, uint256 amount)"]);
+const wrapperAbi = parseAbi(["function asset() view returns (address)"]);
 
 const USDG_AMOUNT = 5_000n * 10n ** 6n; // cap 10,000 per call
 const STOCK_AMOUNT = 10n * 10n ** 18n; // cap 100 per call
@@ -22,16 +23,35 @@ export function TestnetFaucetButton() {
   const [step, setStep] = useState<{i: number; n: number; label: string} | null>(null);
   const [result, setResult] = useState<"ok" | "err" | null>(null);
   const d = getDeployment(TESTNET_ID);
+  const wrappers = d ? ([d.tokens.wTSLAx, d.tokens.wNVDAx, d.tokens.wSPYx, d.tokens.wAAPLx] as const) : undefined;
 
-  if (chainId !== TESTNET_ID || !address || !d) return null;
+  // Each wrapper is an ERC-4626 over a base xStock (what an OKX withdrawal
+  // delivers): the faucet hands out both so either flow is testable.
+  const {data: meta} = useReadContracts({
+    allowFailure: true,
+    contracts: (wrappers ?? []).flatMap(
+      (w) =>
+        [
+          {address: w, abi: wrapperAbi, functionName: "asset", chainId: TESTNET_ID},
+          {address: w, abi: erc20Abi, functionName: "symbol", chainId: TESTNET_ID},
+        ] as const,
+    ),
+    query: {enabled: !!wrappers, staleTime: Infinity, refetchInterval: false},
+  });
+
+  if (chainId !== TESTNET_ID || !address || !d || !wrappers) return null;
 
   const mints: {label: string; token: Address; amount: bigint}[] = [
     {label: "USDG", token: d.tokens.USDG, amount: USDG_AMOUNT},
-    {label: "wTSLAx", token: d.tokens.wTSLAx, amount: STOCK_AMOUNT},
-    {label: "wNVDAx", token: d.tokens.wNVDAx, amount: STOCK_AMOUNT},
-    {label: "wSPYx", token: d.tokens.wSPYx, amount: STOCK_AMOUNT},
-    {label: "wAAPLx", token: d.tokens.wAAPLx, amount: STOCK_AMOUNT},
   ];
+  wrappers.forEach((w, i) => {
+    const base = meta?.[i * 2]?.result as Address | undefined;
+    const symbol = (meta?.[i * 2 + 1]?.result as string | undefined) ?? "xStock";
+    mints.push({label: symbol, token: w, amount: STOCK_AMOUNT});
+    if (base && base !== zeroAddress) {
+      mints.push({label: symbol.replace(/^w/, ""), token: base, amount: STOCK_AMOUNT});
+    }
+  });
 
   const run = async () => {
     setResult(null);
@@ -50,6 +70,9 @@ export function TestnetFaucetButton() {
     window.setTimeout(() => setResult(null), 5000);
   };
 
+  // Wait for the base-token lookup before minting, otherwise the run would
+  // hand out the wrappers only.
+  const ready = !!meta;
   const busy = step !== null;
   const url = tx.hash ? txUrl(TESTNET_ID, tx.hash) : undefined;
 
@@ -58,11 +81,11 @@ export function TestnetFaucetButton() {
       <button
         type="button"
         onClick={run}
-        disabled={busy}
+        disabled={busy || !ready}
         title={
           result === "err" && tx.error
             ? tx.error
-            : "Mints 5,000 USDG and 10 each of wTSLAx, wNVDAx, wSPYx, wAAPLx (testnet stand-ins), one wallet transaction per token"
+            : `Mints 5,000 USDG plus 10 of each xStock, wrapped and base (${mints.length} wallet transactions)`
         }
         className={
           "inline-flex h-10 items-center whitespace-nowrap rounded-full border px-3.5 text-sm transition-colors disabled:opacity-80 " +
@@ -75,7 +98,9 @@ export function TestnetFaucetButton() {
       >
         {busy
           ? `Minting ${step.label} (${step.i}/${step.n})`
-          : result === "ok"
+          : !ready
+            ? "Loading tokens…"
+            : result === "ok"
             ? "Test tokens received"
             : result === "err"
               ? "Faucet failed, retry"

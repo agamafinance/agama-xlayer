@@ -198,7 +198,7 @@ export function BuyTicket({
     <section className="panel p-5" aria-labelledby="buy-title">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 id="buy-title" className="text-md text-white">
-          Buy {m.stock.wrapper} and earn
+          Buy {m.symbol ?? m.stock.wrapper} and earn
         </h2>
         <div className="flex items-center gap-3">
           {marketPill}
@@ -221,7 +221,7 @@ export function BuyTicket({
           balance={balance}
           footer={
             unitPrice !== undefined
-              ? `${testDex ? "Stand-in router" : "OKX route"} at $${unitPrice.toFixed(2)} per ${m.stock.wrapper}`
+              ? `${testDex ? "Stand-in router" : "OKX route"} at $${unitPrice.toFixed(2)} per ${m.symbol ?? m.stock.wrapper}`
               : undefined
           }
         />
@@ -250,12 +250,12 @@ export function BuyTicket({
                 ? fmt(expected, STOCK_DECIMALS, 4)
                 : "-"
           }
-          sub={m.stock.wrapper}
+          sub={m.symbol ?? m.stock.wrapper}
         />
         <Row
           label="Minimum at 1% slippage"
           value={minPreview !== undefined ? fmt(minPreview, STOCK_DECIMALS, 4) : "-"}
-          sub={m.stock.wrapper}
+          sub={m.symbol ?? m.stock.wrapper}
         />
         <Row label="Value at the Agama oracle" value={stockValue !== undefined ? fmtUsd(stockValue) : "-"} />
         <Divider />

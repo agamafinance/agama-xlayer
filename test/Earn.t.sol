@@ -150,8 +150,15 @@ contract EarnForkTest is BaseFork {
         assertGt(borrowed, 0);
         assertEq(base.balanceOf(alice), 0, "the base token went in");
 
-        vm.prank(alice);
-        d.earn.closeToBase(address(d.tsla));
+        // The vault buffer sits a hair under the debt (interest), so the close
+        // needs the same top-up path as the wrapper one.
+        uint256 short = d.earn.closeShortfall(alice, address(d.tsla));
+        _fund(alice, 10e6);
+        vm.startPrank(alice);
+        usdg.approve(address(d.earn), short + 1e6);
+        if (short > 0) d.earn.closeToBaseWithTopUp(address(d.tsla), short + 1e6);
+        else d.earn.closeToBase(address(d.tsla));
+        vm.stopPrank();
         assertApproxEqAbs(base.balanceOf(alice), 10e18, 2, "base token back, ready to deposit on OKX");
         // Her 10 wrapped tokens from setUp are untouched: only the base ones
         // she brought in came back, in the form an OKX deposit takes.

@@ -1,6 +1,6 @@
 "use client";
 
-import {erc20Abi, zeroAddress, type Address} from "viem";
+import {erc20Abi, parseAbi, zeroAddress, type Address} from "viem";
 import {useReadContract, useReadContracts} from "wagmi";
 
 import type {AppChainId} from "./chains";
@@ -49,6 +49,14 @@ export function useProtocol(d: Deployment | undefined, chainId: AppChainId) {
   };
 }
 
+/// The wrapper is an ERC-4626 over the base xStock (the token an OKX
+/// withdrawal delivers and an OKX deposit accepts).
+const wrapperAbi = parseAbi([
+  "function asset() view returns (address)",
+  "function previewDeposit(uint256 assets) view returns (uint256)",
+  "function convertToAssets(uint256 shares) view returns (uint256)",
+]);
+
 export type Feed = {price: bigint; observedAt: bigint; marketOpen: boolean; exists: boolean};
 
 export type EarnPosition = {
@@ -84,8 +92,20 @@ export function useStockMarket(d: Deployment | undefined, s: Stock, user: Addres
       {address: adapter, abi: xStockAdapterAbi, functionName: "borrowAllowed", chainId},
       {address: adapter, abi: xStockAdapterAbi, functionName: "wrapperPrice", chainId},
       {address: router, abi: earnRouterAbi, functionName: "position", args: [who, adapter], chainId},
+      {address: token, abi: erc20Abi, functionName: "symbol", chainId},
+      {address: token, abi: wrapperAbi, functionName: "asset", chainId},
     ],
     query: {enabled: !!d},
+  });
+
+  const base = data?.[11]?.result;
+  const {data: baseData} = useReadContracts({
+    allowFailure: true,
+    contracts: [
+      {address: base ?? zeroAddress, abi: erc20Abi, functionName: "symbol", chainId},
+      {address: base ?? zeroAddress, abi: erc20Abi, functionName: "balanceOf", args: [who], chainId},
+    ],
+    query: {enabled: !!base},
   });
 
   const feed = data?.[1]?.result as Feed | undefined;
@@ -110,6 +130,12 @@ export function useStockMarket(d: Deployment | undefined, s: Stock, user: Addres
     position,
     hasPosition,
     loaded: !!data,
+    /// On-chain symbol of the wrapper (falls back to the deployment name).
+    symbol: data?.[10]?.result ?? s.wrapper,
+    /// Base xStock: what an OKX withdrawal delivers, what an OKX deposit takes.
+    base,
+    baseSymbol: baseData?.[0]?.result,
+    baseBalance: user ? baseData?.[1]?.result : undefined,
   };
 }
 
@@ -153,4 +179,17 @@ export function useUsdgSymbol(d: Deployment | undefined, chainId: AppChainId): s
     query: {enabled: !!d, staleTime: Infinity, refetchInterval: false},
   });
   return data ?? "USDG";
+}
+
+/// Wrapper shares minted for `baseAmount` of the base xStock (ERC-4626 preview).
+export function usePreviewDeposit(wrapper: Address | undefined, baseAmount: bigint, chainId: AppChainId) {
+  const {data} = useReadContract({
+    address: wrapper,
+    abi: parseAbi(["function previewDeposit(uint256 assets) view returns (uint256)"]),
+    functionName: "previewDeposit",
+    args: [baseAmount],
+    chainId,
+    query: {enabled: !!wrapper && baseAmount > 0n},
+  });
+  return data;
 }

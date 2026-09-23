@@ -30,6 +30,8 @@ cast send "$USDG" "approve(address,uint256)" "$POOL" 20000000000 --private-key $
 cast send "$POOL" "deposit(uint256,address)" 20000000000 "$ADMIN" --private-key $KEY0 --rpc-url "$RPC" >/dev/null
 cast send "$USDG" "approve(address,uint256)" "$SP" 5000000000 --private-key $KEY0 --rpc-url "$RPC" >/dev/null
 cast send "$SP" "depositUSDG(uint256,address)" 5000000000 "$ADMIN" --private-key $KEY0 --rpc-url "$RPC" >/dev/null
+SP_SHARES=$(cast call "$POOL" "balanceOf(address)(uint256)" "$SP" --rpc-url "$RPC" | awk '{print $1}')
+[ "${SP_SHARES:-0}" -gt 0 ] || { echo "FAILED: the stability pool is empty, liquidations would be impossible"; exit 1; }
 echo "Arrow supplied 20,000 USDG, stability pool 5,000 USDG"
 
 RPC_URL=$RPC DEPLOYMENT=$DEP KEEPER_KEY=$KEY0 ONCE=1 python3 scripts/keeper.py

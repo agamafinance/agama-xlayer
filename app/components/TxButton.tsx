@@ -16,6 +16,7 @@ export function TxButton({
   variant = "primary",
   hint,
   className,
+  title,
 }: {
   tx: Tx;
   label: ReactNode;
@@ -24,6 +25,7 @@ export function TxButton({
   variant?: "primary" | "secondary" | "danger";
   hint?: ReactNode;
   className?: string;
+  title?: string;
 }) {
   const url = tx.hash ? txUrl(tx.chainId, tx.hash) : undefined;
 
@@ -45,6 +47,7 @@ export function TxButton({
       <button
         type="button"
         onClick={onClick}
+        title={title}
         disabled={disabled || tx.busy}
         className={clsx(
           "h-11 w-full rounded-box border-1.5 px-4 text-base font-medium transition-colors",

@@ -144,6 +144,43 @@ export const earnRouterAbi = [
   },
   {
     "type": "function",
+    "name": "closeToBase",
+    "inputs": [
+      {
+        "name": "adapter",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "closeToBaseWithTopUp",
+    "inputs": [
+      {
+        "name": "adapter",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "maxTopUp",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "toppedUp",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "closeWithTopUp",
     "inputs": [
       {
@@ -291,6 +328,35 @@ export const earnRouterAbi = [
       },
       {
         "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "ltvBps",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "borrowed",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "openWithBase",
+    "inputs": [
+      {
+        "name": "adapter",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "baseAmount",
         "type": "uint256",
         "internalType": "uint256"
       },
@@ -1243,6 +1309,11 @@ export const accountAbi = [
         "name": "stockAdapter",
         "type": "address",
         "internalType": "address"
+      },
+      {
+        "name": "unwrap",
+        "type": "bool",
+        "internalType": "bool"
       }
     ],
     "outputs": [],
@@ -4483,6 +4554,11 @@ export const lendingPoolAbi = [
         "internalType": "address"
       }
     ]
+  },
+  {
+    "type": "error",
+    "name": "StabilityPoolEmpty",
+    "inputs": []
   },
   {
     "type": "error",
@@ -13384,6 +13460,11 @@ export const allErrorsAbi = [
   {
     "type": "error",
     "name": "OnlyTestnet",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "StabilityPoolEmpty",
     "inputs": []
   },
   {

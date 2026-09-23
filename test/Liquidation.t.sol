@@ -36,6 +36,28 @@ contract LiquidationForkTest is BaseFork {
         assertGe(d.pool.convertToAssets(d.sp.totalAssets()), 5_000e6 - 1);
     }
 
+    /// Found by the end-to-end run: with an empty stability pool the call used
+    /// to succeed while seizing nothing, so a keeper announced a liquidation
+    /// that never happened.
+    function test_liquidation_revertsWhenTheStabilityPoolIsEmpty() public {
+        AgamaAccount acct = _earnWithoutBuffer();
+
+        // Drain the SP: its depositor exits after the cooldown.
+        uint256 shares = d.sp.balanceOf(spDepositor);
+        vm.prank(spDepositor);
+        d.sp.requestExit(shares);
+        _warp(1 days + 1);
+        vm.roll(vm.getBlockNumber() + 1);
+        vm.prank(spDepositor);
+        d.sp.redeem(shares, spDepositor, spDepositor);
+        assertEq(d.pool.balanceOf(address(d.sp)), 0, "stability pool drained");
+
+        _pushAll(true); // prices went stale while the cooldown ran
+        _walkPrice("TSLA", 250e18, true);
+        vm.expectRevert(ArrowLendingPool.StabilityPoolEmpty.selector);
+        d.sp.liquidate(address(d.tsla), address(acct));
+    }
+
     function test_liquidation_revertsWhenHealthy() public {
         AgamaAccount acct = _earnWithoutBuffer();
         vm.expectRevert(ArrowLendingPool.HealthFactorTooHigh.selector);

@@ -26,7 +26,15 @@ import {
   parseAmount,
 } from "@/lib/format";
 import {accountAbi, earnRouterAbi} from "@/lib/generated/abis";
-import {approve, useAllowance, useProtocol, useStockMarket, useTokenBalance, type StockMarket} from "@/lib/hooks";
+import {
+  approve,
+  useAllowance,
+  usePreviewDeposit,
+  useProtocol,
+  useStockMarket,
+  useTokenBalance,
+  type StockMarket,
+} from "@/lib/hooks";
 import {STOCKS} from "@/lib/stocks";
 import {useTx} from "@/lib/tx";
 
@@ -85,8 +93,9 @@ export function EarnView() {
           </>
         }
       >
-        Deposit a wrapped xStock and borrow USDG against it. The USDG goes into the Agama vault. You keep the stock
-        exposure and earn the spread between the vault APY and the borrow rate on what you borrowed.
+        Deposit an xStock, wrapped or straight out of the OKX app, and borrow USDG against it. The USDG goes into the
+        Agama vault. You keep the stock exposure and earn the spread between the vault APY and the borrow rate on what
+        you borrowed.
       </PageHead>
 
       <MarketBoard markets={markets} sel={sel} onSelect={setSel} connected={!!address} />
@@ -180,7 +189,7 @@ function MarketBoard({
                     aria-pressed={active}
                     className="text-left focus-visible:outline-offset-4"
                   >
-                    <span className="text-white">{m.stock.wrapper}</span>
+                    <span className="text-white">{m.symbol ?? m.stock.wrapper}</span>
                     <span className="ml-2 text-xs text-dim">{m.stock.name}</span>
                   </button>
                 </td>
@@ -285,8 +294,21 @@ function Ticket({
   const ltv = Math.min(ltvPct, maxLtvPct);
   const ltvBps = BigInt(Math.round(ltv * 100));
 
+  // The wrapper is the collateral, but a stock withdrawn from the OKX app
+  // lands as the BASE token: accept either and wrap on the way in.
+  const [picked, setPicked] = useState<"wrapper" | "base" | null>(null);
+  const holdsBase = (m.baseBalance ?? 0n) > 0n;
+  const holdsWrapper = (m.balance ?? 0n) > 0n;
+  const useBase = picked === null ? !holdsWrapper && holdsBase : picked === "base";
+  const inputToken = useBase ? m.base : m.token;
+  const inputSymbol = (useBase ? m.baseSymbol : m.symbol) ?? m.stock.wrapper;
+  const inputBalance = useBase ? m.baseBalance : m.balance;
+
   const amount = parseAmount(amountStr, STOCK_DECIMALS) ?? 0n;
-  const allowance = useAllowance(m.token, address, router, chainId);
+  const wrapped = usePreviewDeposit(useBase ? m.token : undefined, amount, chainId);
+  /// Collateral the position will hold: the wrapper shares minted from the base.
+  const collateralIn = useBase ? wrapped : amount;
+  const allowance = useAllowance(inputToken, address, router, chainId);
   const approveTx = useTx(chainId);
   const openTx = useTx(chainId);
   const addTx = useTx(chainId);
@@ -295,9 +317,9 @@ function Ticket({
     address: router,
     abi: earnRouterAbi,
     functionName: "quote",
-    args: [m.adapter, amount, ltvBps],
+    args: [m.adapter, collateralIn ?? 0n, ltvBps],
     chainId,
-    query: {enabled: amount > 0n},
+    query: {enabled: (collateralIn ?? 0n) > 0n},
   });
   const [stockValue, borrow, hfRay] = quote.data ?? [];
 
@@ -322,7 +344,7 @@ function Ticket({
   const extraOnStock = spread !== undefined ? (spread * ltvBps) / BPS : undefined;
   const perYear = spread !== undefined && borrow !== undefined ? (borrow * spread) / RAY : undefined;
 
-  const overBalance = m.balance !== undefined && amount > m.balance;
+  const overBalance = inputBalance !== undefined && amount > inputBalance;
   const needsApproval = amount > 0n && (allowance ?? 0n) < amount;
   const frozen = m.borrowAllowed === false;
   const borrowBlocked = ltvBps > 0n && frozen;
@@ -334,7 +356,7 @@ function Ticket({
     <section className="panel p-5" aria-labelledby="ticket-title">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 id="ticket-title" className="text-md text-white">
-          Deposit {m.stock.wrapper}
+          Deposit {m.symbol ?? m.stock.wrapper}
         </h2>
         <div className="flex items-center gap-3">
           <Pill tone={st.tone} title={st.title}>
@@ -351,20 +373,53 @@ function Ticket({
       )}
 
       <div className="mt-4 space-y-3">
+        {m.base && (
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <span className="text-mute">Deposit</span>
+            <div className="pill-bar flex rounded-full p-0.5" role="radiogroup" aria-label="Token to deposit">
+              {(
+                [
+                  ["wrapper", `Wrapped (${m.symbol ?? m.stock.wrapper})`, m.balance],
+                  ["base", `From OKX (${m.baseSymbol ?? "base"})`, m.baseBalance],
+                ] as const
+              ).map(([id, label, bal]) => (
+                <button
+                  key={id}
+                  type="button"
+                  role="radio"
+                  aria-checked={useBase === (id === "base")}
+                  onClick={() => {
+                    setPicked(id);
+                    setAmountStr("");
+                  }}
+                  className={clsx(
+                    "whitespace-nowrap rounded-full px-3 py-1",
+                    useBase === (id === "base") ? "bg-white/[0.14] text-white" : "text-mute hover:text-white",
+                  )}
+                >
+                  {label}
+                  <span className="ml-1.5 text-2xs text-dim">{fmt(bal, STOCK_DECIMALS, 2)}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <AmountField
           id="earn-amount"
           label="Amount"
           value={amountStr}
           onChange={setAmountStr}
           decimals={STOCK_DECIMALS}
-          symbol={m.stock.wrapper}
-          balance={m.balance}
+          symbol={inputSymbol}
+          balance={inputBalance}
           footer={
-            m.wrapperPrice !== undefined
-              ? `${fmtUsd(m.wrapperPrice)} per ${m.stock.wrapper}${stockValue !== undefined ? `, ${fmtUsd(stockValue)} in total` : ""}`
-              : m.priceUnavailable
-                ? "Price unavailable right now"
-                : undefined
+            useBase && collateralIn !== undefined && collateralIn > 0n
+              ? `Wrapped into ${fmt(collateralIn, STOCK_DECIMALS, 4)} ${m.symbol ?? m.stock.wrapper}${stockValue !== undefined ? `, ${fmtUsd(stockValue)}` : ""}`
+              : m.wrapperPrice !== undefined
+                ? `${fmtUsd(m.wrapperPrice)} per ${m.symbol ?? m.stock.wrapper}${stockValue !== undefined ? `, ${fmtUsd(stockValue)} in total` : ""}`
+                : m.priceUnavailable
+                  ? "Price unavailable right now"
+                  : undefined
           }
         />
         <Slider
@@ -380,6 +435,13 @@ function Ticket({
           maxLabel={`${maxLtvPct.toFixed(0)}% max`}
         />
       </div>
+
+      {m.base && (
+        <p className="mt-2 text-xs leading-relaxed text-mute">
+          Withdrew your stock from the OKX app to X Layer? It arrives as {m.baseSymbol ?? "the base xStock"}, deposit it
+          directly here.
+        </p>
+      )}
 
       <div className="mt-4">
         <Row
@@ -401,7 +463,7 @@ function Ticket({
           value={previewHf === undefined ? (quote.isError ? "Price unavailable" : "-") : Number.isFinite(previewHf) ? previewHf.toFixed(2) : "No debt"}
         />
         <Row
-          label={`Soft deleverage if ${m.stock.wrapper} falls to`}
+          label={`Soft deleverage if ${m.symbol ?? m.stock.wrapper} falls to`}
           value={softPrice !== undefined ? fmtUsd(softPrice) : "-"}
         />
         <Row label="Liquidation price" value={liqPrice !== undefined ? fmtUsd(liqPrice) : "-"} />
@@ -418,9 +480,9 @@ function Ticket({
         <TxButton
           tx={approveTx}
           variant={needsApproval ? "primary" : "secondary"}
-          label={amount > 0n && !needsApproval ? `${m.stock.wrapper} approved` : `Approve ${m.stock.wrapper}`}
-          disabled={!canSubmit || !needsApproval}
-          onClick={() => approve(approveTx, m.token, router, amount)}
+          label={amount > 0n && !needsApproval ? `${inputSymbol} approved` : `Approve ${inputSymbol}`}
+          disabled={!canSubmit || !needsApproval || !inputToken}
+          onClick={() => inputToken && approve(approveTx, inputToken, router, amount)}
         />
         <TxButton
           tx={openTx}
@@ -434,12 +496,17 @@ function Ticket({
                 : undefined
           }
           onClick={async () => {
-            const ok = await openTx.send({address: router, abi: earnRouterAbi, functionName: "open", args: [m.adapter, amount, ltvBps]});
+            const ok = await openTx.send({
+              address: router,
+              abi: earnRouterAbi,
+              functionName: useBase ? "openWithBase" : "open",
+              args: [m.adapter, amount, ltvBps],
+            });
             if (ok) setAmountStr("");
           }}
         />
       </div>
-      {m.hasPosition && (
+      {m.hasPosition && !useBase && (
         <div className="mt-3">
           <TxButton
             tx={addTx}
@@ -478,6 +545,7 @@ function PositionPanel({
 }) {
   const {address} = useAccount();
   const closeTx = useTx(chainId);
+  const closeBaseTx = useTx(chainId);
   const softTx = useTx(chainId);
   const p = m.position;
   const has = m.hasPosition && !!p;
@@ -500,6 +568,24 @@ function PositionPanel({
   const topUpAllowance = useAllowance(usdg, address, router, chainId);
   const lacksUsdg = needsTopUp && walletUsdg !== undefined && walletUsdg < maxTopUp;
 
+  // Same two paths as the wrapper close, but handing back the base xStock.
+  const closeBase = async () => {
+    if (!needsTopUp) {
+      await closeBaseTx.send({address: router, abi: earnRouterAbi, functionName: "closeToBase", args: [m.adapter]});
+      return;
+    }
+    if ((topUpAllowance ?? 0n) < maxTopUp) {
+      const ok = await approve(closeBaseTx, usdg, router, maxTopUp);
+      if (!ok) return;
+    }
+    await closeBaseTx.send({
+      address: router,
+      abi: earnRouterAbi,
+      functionName: "closeToBaseWithTopUp",
+      args: [m.adapter, maxTopUp],
+    });
+  };
+
   const close = async () => {
     if (!needsTopUp) {
       await closeTx.send({address: router, abi: earnRouterAbi, functionName: "close", args: [m.adapter]});
@@ -521,7 +607,7 @@ function PositionPanel({
     <section className="panel-muted p-5" aria-labelledby="pos-title">
       <div className="flex items-baseline justify-between gap-3">
         <h2 id="pos-title" className="text-md text-white">
-          Your {m.stock.wrapper} position
+          Your {m.symbol ?? m.stock.wrapper} position
         </h2>
         {p && p.account !== "0x0000000000000000000000000000000000000000" && (
           <span className="text-2xs text-dim" title={p.account}>
@@ -540,7 +626,7 @@ function PositionPanel({
 
       <div className="mt-4 grid gap-x-8 sm:grid-cols-2">
         <div>
-          <Row label="Collateral" value={has ? fmt(p!.collateral, STOCK_DECIMALS, 4) : "-"} sub={m.stock.wrapper} />
+          <Row label="Collateral" value={has ? fmt(p!.collateral, STOCK_DECIMALS, 4) : "-"} sub={m.symbol ?? m.stock.wrapper} />
           <Row label="Collateral value" value={has ? fmtUsd(p!.collateralValue) : "-"} />
           <Row label="Debt" value={has ? fmtUsd(p!.debt) : "-"} sub="USDG" />
         </div>
@@ -574,6 +660,24 @@ function PositionPanel({
             onClick={close}
           />
           <TxButton
+            tx={closeBaseTx}
+            variant="secondary"
+            label={
+              needsTopUp
+                ? `Close to ${m.baseSymbol ?? "base"}, add ${fmt(shortfall, USDG_DECIMALS, 2)} USDG`
+                : `Close to ${m.baseSymbol ?? "the base token"} (for OKX)`
+            }
+            disabled={!m.base || lacksUsdg}
+            title={`${m.baseSymbol ?? "The base xStock"} is the token an OKX deposit accepts.`}
+            hint={
+              needsTopUp
+                ? `Approve the USDG top-up, then close to ${m.baseSymbol ?? "the base xStock"}. Unused USDG is not pulled.`
+                : `Unwraps to ${m.baseSymbol ?? "the base xStock"}, the token an OKX deposit accepts.`
+            }
+            onClick={closeBase}
+          />
+          <TxButton
+            className="col-span-2"
             tx={softTx}
             variant={softOpen ? "primary" : "secondary"}
             label="Soft deleverage"
@@ -586,7 +690,7 @@ function PositionPanel({
         </div>
       ) : (
         <p className="mt-4 text-sm text-mute">
-          No {m.stock.wrapper} position yet. Deposit on the left: the USDG you borrow lands in the Agama vault and stays in
+          No {m.symbol ?? m.stock.wrapper} position yet. Deposit on the left: the USDG you borrow lands in the Agama vault and stays in
           your account as a free buffer that protects the stock.
         </p>
       )}

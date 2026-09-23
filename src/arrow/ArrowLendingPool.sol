@@ -148,6 +148,7 @@ contract ArrowLendingPool is ERC4626, ILendingPool, AccessControl, Pausable, Ree
     error NoDebtToLiquidate();
     error HealthFactorTooHigh();
     error StabilityPoolNotSet();
+    error StabilityPoolEmpty();
     error OnlyTestnet();
     error BpsExceedsDenom();
     error BorrowNotAllowed();
@@ -400,8 +401,11 @@ contract ArrowLendingPool is ERC4626, ILendingPool, AccessControl, Pausable, Ree
         uint256 hf = _hf(collateralValue, marketDebt, ltBps);
         if (hf >= HF_LIQUIDATION_THRESHOLD) revert HealthFactorTooHigh();
 
-        // 1. The SP absorbs what it can.
+        // 1. The SP absorbs what it can. An empty pool must revert rather than
+        //    mine a transaction that seizes nothing: a keeper reporting a
+        //    liquidation that did not happen is worse than a failed call.
         uint256 spCapacityAssets = convertToAssets(balanceOf(sp));
+        if (spCapacityAssets == 0) revert StabilityPoolEmpty();
         absorbedAssets = marketDebt < spCapacityAssets ? marketDebt : spCapacityAssets;
         uint256 sharesToBurn = convertToShares(absorbedAssets);
         if (sharesToBurn > 0) {

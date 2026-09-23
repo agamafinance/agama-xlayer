@@ -143,13 +143,25 @@ contract AgamaEarnRouter is AccessControl {
     ///         interest accrued before inclusion) from the caller, capped by
     ///         `maxTopUp`. Anything unused comes back with the leftovers.
     function closeWithTopUp(address adapter, uint256 maxTopUp) external returns (uint256 toppedUp) {
+        return _closeWithTopUp(adapter, maxTopUp, false);
+    }
+
+    /// @notice `closeWithTopUp`, returning the BASE xStock (for an OKX deposit).
+    function closeToBaseWithTopUp(address adapter, uint256 maxTopUp) external returns (uint256 toppedUp) {
+        return _closeWithTopUp(adapter, maxTopUp, true);
+    }
+
+    function _closeWithTopUp(address adapter, uint256 maxTopUp, bool unwrap)
+        internal
+        returns (uint256 toppedUp)
+    {
         address account = FACTORY.accountOf(msg.sender);
         uint256 short = closeShortfall(msg.sender, adapter);
         if (short > 0) {
             toppedUp = short > maxTopUp ? maxTopUp : short;
             USDG.safeTransferFrom(msg.sender, account, toppedUp);
         }
-        AgamaAccount(account).earnClose(msg.sender, adapter, false);
+        AgamaAccount(account).earnClose(msg.sender, adapter, unwrap);
         emit Closed(msg.sender, adapter);
     }
 

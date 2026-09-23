@@ -2,7 +2,10 @@
 
 Next.js (app router) + wagmi v2 + viem + RainbowKit. Three pages:
 
-- `/` Earn on your stocks: deposit a wrapped xStock, borrow USDG, the USDG goes into the Agama vault (sagUSD). Soft deleverage under HF 1.15.
+- `/` Earn on your stocks: deposit an xStock, borrow USDG, the USDG goes into the Agama vault (sagUSD). Soft deleverage under HF 1.15.
+  A stock withdrawn from the OKX app arrives as the BASE token (TSLAx), not the ERC-4626 wrapper the markets take:
+  the Deposit tab accepts either (`openWithBase` wraps on the way in) and the position panel closes back to the base
+  token (`closeToBase`), which is what an OKX deposit accepts. Token symbols come from the chain.
 - `/amplify`: loop the Agama vault on Arrow up to 3x, or stack it on the vault shares of an Earn position.
 - `/lend`: supply USDG to the Arrow pool, stake in the Arrow Stability Pool.
 
@@ -10,7 +13,7 @@ Next.js (app router) + wagmi v2 + viem + RainbowKit. Three pages:
 
 | Chain | Id | Default | Test tokens |
 | --- | --- | --- | --- |
-| X Layer Testnet | 1952 | yes, when `deployments/1952.json` exists (the demo runs here) | **Get test tokens** button: 5 wallet txs calling `faucet(to, amount)` on the stand-in tokens (5,000 USDG, 10 of each xStock). Gas OKB: https://web3.okx.com/xlayer/faucet |
+| X Layer Testnet | 1952 | yes, when `deployments/1952.json` exists (the demo runs here) | **Get test tokens** button: one wallet tx per token calling `faucet(to, amount)` on the stand-ins (5,000 USDG, 10 of each xStock, wrapped and base). Gas OKB: https://web3.okx.com/xlayer/faucet |
 | X Layer (fork) | 1961 | when there is no testnet deployment | **Fork faucet** button (anvil cheat codes, see below) |
 | X Layer | 196 | when neither exists | shows "Not deployed" while there is no `deployments/196.json` |
 

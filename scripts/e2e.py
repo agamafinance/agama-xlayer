@@ -24,7 +24,9 @@ Part B (the remaining paths):
   14. Grace: Earn, Amplify stacked on the Earn shares, close Amplify (equity goes back to the Earn
       buffer, not the wallet), close Earn on that buffer
   15. Buy and Earn: one transaction buys the stock and opens the position
-  16. Dave withdraws his supply with the interest paid by the borrowers
+  16. OKX rail: a stock withdrawn from the OKX app (the base xStock) is deposited
+      directly, and the position closes back into that same token
+  17. Dave withdraws his supply with the interest paid by the borrowers
 """
 
 import json
@@ -123,6 +125,10 @@ def num(s):
 def send(who, to, sig, *args, value=None):
     extra = ["--value", str(value)] if value else []
     call_args = [sig, *args] if sig else []  # plain value transfer: no calldata
+    # Gas estimation is tight on the loop-heavy paths (a vault deposit inside an
+    # open can tip it into OutOfGas), and blocks here hold 200M+.
+    if sig:
+        extra += ["--gas-limit", "6000000"]
     for attempt in range(6):
         try:
             out = cast("send", to, *call_args, "--private-key", K[who], "--json", *extra)
@@ -451,7 +457,33 @@ def part_b():
            f"bought {p['collateral'] / E18:.6f} wTSLAx with {spend / E6:.0f} USDG and opened at 25% LTV "
            f"(debt {p['debt'] / E6:.2f}, HF {p['hf'] / RAY:.3f}), nothing left in the wallet")
 
-    step("16. Dave withdraws with interest")
+    step("16. OKX rail: deposit the base xStock, close back to it")
+    base = call(T["wTSLAx"], "asset()(address)")
+    if MODE == "testnet":
+        send("buyer", base, "faucet(address,uint256)", ADDR["buyer"], str(5 * E18))
+    else:
+        # The base xStock keeps balances at slot 263 (the wrappers use 101).
+        key = subprocess.check_output(["cast", "index", "address", ADDR["buyer"], "263"], text=True).strip()
+        cast("rpc", "anvil_setStorageAt", base, key, "0x" + format(5 * E18, "064x"))
+    base_before = num(call(base, "balanceOf(address)(uint256)", ADDR["buyer"]))
+    send("buyer", base, "approve(address,uint256)", C["earnRouter"], str(5 * E18))
+    send("buyer", C["earnRouter"], "openWithBase(address,uint256,uint256)", A["TSLA"], str(5 * E18), "2500")
+    p = earn_pos("buyer")
+    ok(p["collateral"] > 0 and p["debt"] > 0,
+       f"deposited 5 base xStock straight from the OKX rail: {p['collateral'] / E18:.6f} wrapped, "
+       f"debt {p['debt'] / E6:.2f} USDG")
+    short = num(call(C["earnRouter"], "closeShortfall(address,address)(uint256)", ADDR["buyer"], A["TSLA"]))
+    if short:
+        cap = short + short // 100 + 10_000
+        send("buyer", T["USDG"], "approve(address,uint256)", C["earnRouter"], str(cap))
+        send("buyer", C["earnRouter"], "closeToBaseWithTopUp(address,uint256)", A["TSLA"], str(cap))
+    else:
+        send("buyer", C["earnRouter"], "closeToBase(address)", A["TSLA"])
+    back = num(call(base, "balanceOf(address)(uint256)", ADDR["buyer"]))
+    ok(back >= base_before - 10,
+       f"closed back into the base token ({back / E18:.6f}), the form an OKX deposit takes")
+
+    step("17. Dave withdraws with interest")
     before = usdg("dave")
     send("dave", C["pool"], "redeem(uint256,address,address)", str(dave_shares), ADDR["dave"], ADDR["dave"])
     got = usdg("dave") - before
