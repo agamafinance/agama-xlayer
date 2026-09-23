@@ -110,7 +110,7 @@ function Amplify({d, chainId, proto}: {d: Deployment; chainId: AppChainId; proto
         vault, up to 3x. Net APY = vault APY + (L - 1) × (vault APY - borrow APR).
       </PageHead>
 
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-5 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
         <Ticket d={d} chainId={chainId} proto={proto} ladder={ladder?.map((r) => r.result)} freeShares={freeShares} freeValue={freeValue} />
         <section className="panel-muted p-5" aria-labelledby="amp-pos">
           <div className="flex items-baseline justify-between gap-3">
@@ -164,7 +164,7 @@ function ClosePanel({router, chainId, hasPos}: {router: Address; chainId: AppCha
   if (!hasPos) {
     return (
       <p className="mt-4 text-sm text-mute">
-        No Amplify position yet. Pick an amount and a leverage on the left, or stack it on the vault shares of an Earn
+        No Amplify position yet. Pick an amount and a leverage, or stack it on the vault shares of an Earn
         position.
       </p>
     );

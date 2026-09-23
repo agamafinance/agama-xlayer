@@ -158,7 +158,7 @@ function Lend({d, chainId, proto}: {d: Deployment; chainId: AppChainId; proto: P
         />
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-2">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-5 lg:grid-cols-2">
         <SupplyPanel d={d} chainId={chainId} x={x} />
         <StabilityPanel d={d} chainId={chainId} x={x} />
       </div>
@@ -388,7 +388,7 @@ function StabilityPanel({d, chainId, x}: {d: Deployment; chainId: AppChainId; x:
             variant={unlocked ? "primary" : "secondary"}
             label={pending ? `Redeem ${fmt(redeemable, ASP_DECIMALS, 2)}` : "Redeem"}
             disabled={!x.address || !unlocked || redeemable === 0n}
-            hint="Paid in arUSDG pool shares, withdraw them as USDG on the left."
+            hint="Paid in arUSDG pool shares, withdraw them as USDG in the supply card."
             onClick={() =>
               redeemTx.send({address: sp, abi: stabilityPoolAbi, functionName: "redeem", args: [redeemable, x.address!, x.address!]})
             }

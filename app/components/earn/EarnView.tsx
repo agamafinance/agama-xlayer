@@ -169,7 +169,7 @@ export function EarnView() {
 
       <MarketBoard markets={markets} sel={sel} onSelect={setSel} connected={!!address} />
 
-      <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
+      <div className="mt-5 grid grid-cols-[minmax(0,1fr)] gap-5 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
         {zap && mode === "buy" ? (
           <BuyTicket
             key={`buy-${chainId}-${m.stock.key}`}
@@ -231,7 +231,105 @@ function MarketBoard({
   connected: boolean;
 }) {
   return (
-    <div className="panel-muted overflow-x-auto">
+    <>
+      <MarketCards markets={markets} sel={sel} onSelect={onSelect} connected={connected} />
+      <MarketTable markets={markets} sel={sel} onSelect={onSelect} connected={connected} />
+    </>
+  );
+}
+
+/// Phone layout: a seven column table is unreadable at 393px, so each market
+/// becomes a tappable card and the numbers stack in two columns.
+function MarketCards({
+  markets,
+  sel,
+  onSelect,
+  connected,
+}: {
+  markets: StockMarket[];
+  sel: number;
+  onSelect: (i: number) => void;
+  connected: boolean;
+}) {
+  return (
+    <ul className="space-y-2 md:hidden" aria-label="xStock markets on Arrow">
+      {markets.map((m, i) => {
+        const st = marketState(m);
+        const active = i === sel;
+        const closed = m.lt !== undefined && m.baseLt !== undefined && m.lt < m.baseLt;
+        return (
+          <li key={m.stock.key}>
+            <button
+              type="button"
+              onClick={() => onSelect(i)}
+              aria-pressed={active}
+              className={clsx(
+                "panel-muted w-full px-4 py-3 text-left transition-colors",
+                active ? "border-mint/60 bg-white/[0.07]" : "hover:bg-white/[0.03]",
+              )}
+            >
+              <div className="flex items-baseline justify-between gap-2">
+                <span>
+                  <span className="text-white">{m.symbol ?? m.stock.wrapper}</span>
+                  <span className="ml-2 text-xs text-dim">{m.stock.name}</span>
+                </span>
+                <Pill tone={st.tone} title={st.title}>
+                  {st.text}
+                </Pill>
+              </div>
+              <div className="mt-1 flex items-baseline gap-2">
+                {m.feed && m.feed.price > 0n ? (
+                  <>
+                    <span className="text-lg text-white">${fmt(m.feed.price, 18, 2)}</span>
+                    <span className="text-2xs text-dim">{fmtAge(m.feed.observedAt)}</span>
+                  </>
+                ) : (
+                  <span className="text-dim">-</span>
+                )}
+              </div>
+              <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                <div className="flex justify-between">
+                  <dt className="text-dim">Max LTV</dt>
+                  <dd className="text-white">{fmtBps(m.maxLtv)}</dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt className="text-dim">Liquidation</dt>
+                  <dd className={closed ? "text-sand" : "text-white"}>{fmtBps(m.lt)}</dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt className="text-dim">In wallet</dt>
+                  <dd className="text-white">
+                    {connected ? fmt(m.balance, STOCK_DECIMALS, 4) : <span className="text-dim">-</span>}
+                  </dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt className="text-dim">Your debt</dt>
+                  <dd className="text-white">
+                    {m.hasPosition && m.position ? fmtUsd(m.position.debt) : <span className="text-dim">-</span>}
+                  </dd>
+                </div>
+              </dl>
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function MarketTable({
+  markets,
+  sel,
+  onSelect,
+  connected,
+}: {
+  markets: StockMarket[];
+  sel: number;
+  onSelect: (i: number) => void;
+  connected: boolean;
+}) {
+  return (
+    <div className="panel-muted hidden overflow-x-auto md:block">
       <table className="w-full min-w-[760px] text-left">
         <caption className="sr-only">xStock markets on Arrow</caption>
         <thead>
@@ -471,7 +569,7 @@ function Ticket({
             </ol>
             <div className="flex flex-wrap items-center gap-2 text-sm">
               <span className="text-mute">Deposit</span>
-              <div className="pill-bar flex rounded-full p-0.5" role="radiogroup" aria-label="Token to deposit">
+              <div className="pill-bar flex flex-wrap rounded-2xl p-0.5 sm:rounded-full" role="radiogroup" aria-label="Token to deposit">
                 {(
                   [
                     ["wrapper", `Wrapped (${m.symbol ?? m.stock.wrapper})`, m.balance, null],
@@ -494,7 +592,7 @@ function Ticket({
                   >
                     {label}
                     <span className="ml-1.5 text-2xs text-dim">{fmt(bal, STOCK_DECIMALS, 2)}</span>
-                    {tag && <span className="ml-1.5 text-2xs text-dim">{tag}</span>}
+                    {tag && <span className="ml-1.5 hidden text-2xs text-dim sm:inline">{tag}</span>}
                   </button>
                 ))}
               </div>
@@ -961,7 +1059,7 @@ function PositionPanel({
         </div>
       ) : (
         <p className="mt-4 text-sm text-mute">
-          No {m.symbol ?? m.stock.wrapper} position yet. Deposit on the left: the USDG you borrow lands in the Agama vault and stays in
+          No {m.symbol ?? m.stock.wrapper} position yet. Deposit a stock and the USDG you borrow lands in the Agama vault and stays in
           your account as a free buffer that protects the stock.
         </p>
       )}

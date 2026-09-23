@@ -3,6 +3,7 @@ import type {ReactNode} from "react";
 
 import {Header} from "@/components/Header";
 import {NetworkBanner} from "@/components/NetworkBanner";
+import {OpenInOkxWallet} from "@/components/OpenInOkxWallet";
 import {ForkDeploymentStrip, TestnetStrip} from "@/components/TestnetFaucet";
 
 import "./globals.css";
@@ -20,6 +21,7 @@ export default function RootLayout({children}: {children: ReactNode}) {
       <body className="min-h-screen bg-forest text-white">
         <Providers>
           <Header />
+          <OpenInOkxWallet />
           <NetworkBanner />
           <TestnetStrip />
           <ForkDeploymentStrip />
