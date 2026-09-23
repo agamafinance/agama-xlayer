@@ -8,15 +8,18 @@ the testnet RPC; `eth_sendTransaction` is signed and broadcast by `cast` with a
 fresh throwaway key funded by the deployer, so every click is a real testnet
 transaction. Screenshots land in ../agama-xlayer-local/ui-e2e/.
 
-Flow: page loads with live prices -> connect -> faucet -> Earn open -> Buy and Earn -> agents
-(rebalance, compound) -> Amplify open -> Amplify close -> Earn close -> Arrow supply and withdraw.
-Fails on any page error or any transaction error shown by the app.
+Flow: page loads with live prices -> connect -> faucet -> Earn from the OKX base
+token -> the agent panel -> Amplify open and close -> Lend supply and withdraw ->
+Earn close. Fails on any page error or any error the app puts under a button.
+
+Needs testnet OKB on the deployer: the run funds a throwaway wallet with
+0.001 OKB and the deployer tops up from https://web3.okx.com/xlayer/faucet.
 """
 
 import asyncio
 import json
-import re
 import os
+import re
 import subprocess
 import sys
 import time
@@ -25,22 +28,14 @@ import urllib.request
 from playwright.async_api import async_playwright
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-BASE = sys.argv[1] if len(sys.argv) > 1 else "https://app.agama.finance/xlayer"
+BASE = (sys.argv[1] if len(sys.argv) > 1 else "https://app.agama.finance/xlayer").rstrip("/")
 RPC = "https://testrpc.xlayer.tech/terigon"
 CHAIN_HEX = hex(1952)
 OUT = os.path.join(os.path.dirname(ROOT), "agama-xlayer-local", "ui-e2e")
 os.makedirs(OUT, exist_ok=True)
 
-
-def key(name):
-    path = os.path.join(ROOT, ".keys", "e2e.json")
-    ks = json.load(open(path)) if os.path.exists(path) else {}
-    if name not in ks:
-        w = json.loads(subprocess.check_output(["cast", "wallet", "new", "--json"]))
-        ks[name] = (w[0] if isinstance(w, list) else w)["private_key"]
-        json.dump(ks, open(path, "w"))
-        os.chmod(path, 0o600)
-    return ks[name]
+DEP = json.load(open(os.path.join(ROOT, "deployments", "1952.json")))
+PAGE_ERRORS = []
 
 
 def admin_key():
@@ -53,7 +48,6 @@ UI_KEY = (lambda w: (w[0] if isinstance(w, list) else w)["private_key"])(
     json.loads(subprocess.check_output(["cast", "wallet", "new", "--json"]))
 )
 ACCOUNT = subprocess.check_output(["cast", "wallet", "address", UI_KEY], text=True).strip()
-PAGE_ERRORS = []
 
 
 def rpc(method, params):
@@ -122,52 +116,11 @@ INJECT = """
 """
 
 
-DEP = json.load(open(os.path.join(ROOT, "deployments", "1952.json")))
+# ---- chain reads -------------------------------------------------------------
 
 
 def call(to, sig, *args):
-    out = subprocess.check_output(["cast", "call", to, sig, *args, "--rpc-url", RPC], text=True).strip()
-    return out
-
-
-def admin_send(to, sig, *args):
-    cmd = ["cast", "send", to, sig, *args, "--private-key", admin_key(), "--rpc-url", RPC,
-           "--gas-limit", "3000000"]
-    for attempt in range(6):
-        r = subprocess.run(cmd, capture_output=True, text=True)
-        if r.returncode == 0:
-            return
-        # The testnet RPC is load balanced: a node can still be a block behind.
-        if ("nonce too low" in r.stderr or "already known" in r.stderr) and attempt < 5:
-            time.sleep(4)
-            continue
-        raise SystemExit(f"   FAIL: admin {sig.split('(')[0]}: {r.stderr.strip()[-200:]}")  # never log the key
-
-
-def tsla_price():
-    parts = call(DEP["contracts"]["oracle"], "feed(bytes32)((uint128,uint64,bool,bool))",
-                 "0x" + "TSLA".encode().hex().ljust(64, "0")).strip("()").split(", ")
-    return int(parts[0].split()[0])
-
-
-def push_tsla(price):
-    """Move the price the way the keeper does, in steps inside the deviation cap."""
-    cur = tsla_price()
-    while cur != price:
-        nxt = max(price, cur * 88 // 100) if price < cur else min(price, cur * 112 // 100)
-        admin_send(DEP["contracts"]["oracle"], "push(bytes32,uint256,uint64,bool)",
-                   "0x" + "TSLA".encode().hex().ljust(64, "0"), str(nxt), str(int(time.time())), "true")
-        cur = nxt
-
-
-def wait_position(pred, timeout=60):
-    """Poll the chain until the position satisfies `pred` (the RPC is load balanced)."""
-    t0 = time.time()
-    p = earn_position()
-    while time.time() - t0 < timeout and not pred(p):
-        time.sleep(3)
-        p = earn_position()
-    return p
+    return subprocess.check_output(["cast", "call", to, sig, *args, "--rpc-url", RPC], text=True).strip()
 
 
 def earn_position():
@@ -176,6 +129,26 @@ def earn_position():
                ACCOUNT, DEP["adapters"]["TSLA"])
     f = [x.split()[0] for x in out.strip("()").split(", ")]
     return {"account": f[0], "collateral": int(f[1]), "value": int(f[2]), "debt": int(f[3])}
+
+
+def amplify_position():
+    out = call(DEP["contracts"]["amplifyRouter"],
+               "position(address)((uint256,uint256,uint256,uint256,uint256))", ACCOUNT)
+    f = [x.split()[0] for x in out.strip("()").split(", ")]
+    return {"equity": int(f[0]), "exposure": int(f[1]), "debt": int(f[2]), "leverageBps": int(f[3])}
+
+
+def wait_chain(read, pred, timeout=90):
+    """The testnet RPC is load balanced, so poll instead of reading once."""
+    t0 = time.time()
+    v = read()
+    while time.time() - t0 < timeout and not pred(v):
+        time.sleep(3)
+        v = read()
+    return v
+
+
+# ---- output ------------------------------------------------------------------
 
 
 def step(msg):
@@ -189,50 +162,51 @@ def ok(cond, msg):
 
 
 async def shot(page, name):
-    await page.wait_for_timeout(1500)
+    await page.wait_for_timeout(1200)
     await page.screenshot(path=os.path.join(OUT, f"{name}.png"), full_page=True)
 
 
-async def wait_text(page, selector, pred, timeout=45):
-    """The app polls a load-balanced RPC: wait for the state instead of sleeping."""
-    t0 = time.time()
-    while time.time() - t0 < timeout:
-        if pred(await page.locator(selector).inner_text()):
-            return True
-        await page.wait_for_timeout(1000)
-    return False
+# ---- driving the fork's cards -------------------------------------------------
+#
+# Every action in this app is one round button inside a cream card. While the
+# transaction runs the button is disabled and its label is the status; when it
+# finishes the card shows "Done" underneath, or the error, in the same spot.
 
 
-async def click_tx(page, name, scope=None, timeout=120):
-    """Click a transaction button and wait for the app to report Done or an error."""
-    root = page.locator(scope) if scope else page
-    # Testnet stand-ins carry on-chain symbols (tUSDG): match "USDG" and "tUSDG".
-    pattern = re.compile(re.escape(name).replace("USDG", "t?USDG"))
-    btn = root.get_by_role("button", name=pattern).first
+def card(page, heading):
+    """The cream card whose heading matches, addressed through the heading itself."""
+    return page.locator("div.rounded-2xl").filter(has=page.get_by_role("heading", name=heading)).first
+
+
+async def act(page, scope, button, timeout=180):
+    btn = scope.get_by_role("button", name=re.compile(button)).first
     await btn.wait_for(state="visible", timeout=30000)
     for _ in range(120):
         if await btn.is_enabled():
             break
         await page.wait_for_timeout(250)
-    box = await btn.locator("xpath=..").element_handle()
     await btn.click()
     t0 = time.time()
     while time.time() - t0 < timeout:
-        txt = await box.inner_text()
-        if "Done" in txt:
-            print(f"   ok  {name}", flush=True)
-            await page.wait_for_timeout(2500)
+        txt = await scope.inner_text()
+        if re.search(r"\bDone\b", txt):
+            print(f"   ok  {button}", flush=True)
+            await page.wait_for_timeout(2000)
             return
-        if await box.query_selector("[role=alert]"):
-            raise SystemExit(f"   FAIL: {name}: {txt.replace(chr(10), ' | ')[:300]}")
-        await page.wait_for_timeout(400)
-    raise SystemExit(f"   FAIL: {name}: no confirmation after {timeout}s")
+        low = txt.lower()
+        for bad in ("reverted", "insufficient", "error", "failed", "rejected"):
+            if bad in low:
+                raise SystemExit(f"   FAIL: {button}: {txt.replace(chr(10), ' | ')[:300]}")
+        await page.wait_for_timeout(500)
+    raise SystemExit(f"   FAIL: {button}: nothing after {timeout}s")
+
+
+async def fill_amount(scope, value):
+    await scope.locator("input[inputmode=decimal]").first.fill(value)
 
 
 async def main():
     step(f"0. funding the UI wallet {ACCOUNT}")
-    # Gas is ~0.02 gwei here, so 0.001 OKB is a whole run with room to spare, and
-    # the deployer keeps its reserve for the keeper (testnet OKB comes from a faucet).
     bal = int(subprocess.check_output(["cast", "balance", ACCOUNT, "--rpc-url", RPC], text=True).split()[0])
     if bal < 5 * 10**14:
         # Never let the key reach an exception message or a log line.
@@ -244,167 +218,105 @@ async def main():
 
     async with async_playwright() as p:
         browser = await p.chromium.launch()
-        ctx = await browser.new_context(viewport={"width": 1360, "height": 1000})
+        ctx = await browser.new_context(viewport={"width": 1360, "height": 1100})
         await ctx.expose_function("__agamaWallet", wallet_bridge)
-        page = await ctx.new_page()
-        page.on("pageerror", lambda e: PAGE_ERRORS.append(str(e)))
-
-        step("1. live page loads with oracle prices")
-        await page.goto(BASE + "/")
-        await page.wait_for_timeout(6000)
-        body = await page.locator("body").inner_text()
-        ok("wTSLAx" in body and "$" in body and "Open" in body, "stock table rendered with live prices and market status")
-        await shot(page, "01-earn-live")
-
-        step("2. connect the wallet")
         await ctx.add_init_script(INJECT)
         page = await ctx.new_page()
         page.on("pageerror", lambda e: PAGE_ERRORS.append(str(e)))
-        await page.goto(BASE + "/")
-        await page.wait_for_timeout(5000)
-        if await page.get_by_role("button", name="Connect wallet").count() > 0:
-            await page.get_by_role("button", name="Connect wallet").first.click()
-            await page.get_by_text("Browser Wallet").first.click()
-            await page.wait_for_timeout(3000)
+
+        step("1. the Agama app opens on X Layer, with live oracle prices")
+        await page.goto(BASE)
+        await page.wait_for_timeout(7000)
         body = await page.locator("body").inner_text()
-        ok(ACCOUNT[2:6].lower() in body.lower() or "Get test tokens" in body, "wallet connected")
+        ok("Deposit your stock" in body and "wTSLAx" in body and "$" in body,
+           "Earn page rendered in the Agama design with the four markets priced")
+        ok(all(t in body for t in ("Earn", "Amplify", "Lend", "Faucet")), "the four tabs are there")
+        await shot(page, "f01-earn")
 
-        step("3. testnet faucet")
-        await page.get_by_role("button", name="Get test tokens").first.click()
-        t0 = time.time()
-        while time.time() - t0 < 180:
-            txt = await page.locator("body").inner_text()
-            if "Test tokens received" in txt:
-                break
-            if "Faucet failed" in txt:
-                raise SystemExit("   FAIL: faucet")
-            await page.wait_for_timeout(1000)
-        ok("Test tokens received" in txt, "5,000 USDG + 10 of each xStock received")
-        await page.reload()
-        await page.wait_for_timeout(5000)
+        step("2. the wallet is picked up")
+        # The app asks the injected provider for `eth_accounts` on mount, so a
+        # wallet that already has the site approved is connected without a click.
+        nav = await page.locator("header").inner_text()
+        if ACCOUNT[-4:].lower() not in nav.lower():
+            await page.get_by_role("button", name="Connect Wallet").first.click()
+            await page.wait_for_timeout(4000)
+            nav = await page.locator("header").inner_text()
+        ok(ACCOUNT[-4:].lower() in nav.lower(), f"wallet connected, navbar shows {nav.splitlines()[-1]}")
 
-        step("4. Earn: the OKX rail (base token) is the default, then the wrapped one")
-        body = await page.locator("section[aria-labelledby=ticket-title], form, main").first.inner_text()
-        ok("From OKX" in body, "the deposit card offers the token an OKX withdrawal sends")
-        await page.fill("#earn-amount", "2")
-        await page.wait_for_timeout(2500)
-        await shot(page, "02-earn-ticket")
-        # Holding base tokens and no position, the app preselects "From OKX".
-        await click_tx(page, "Approve TSLAx")
-        await click_tx(page, "Open position")
-        shown = await wait_text(page, "section[aria-labelledby=pos-title]",
-                                lambda t: "No wTSLAx position yet" not in t)
-        ok(shown, "position opened straight from the OKX token")
+        step("3. faucet: 5,000 USDG and 10 of each stock, wrapped and base")
+        await page.get_by_role("link", name="Faucet", exact=True).click()
+        await page.wait_for_timeout(4000)
+        await act(page, page.locator("body"), "Get test tokens", timeout=420)
+        usdg = int(call(DEP["tokens"]["USDG"], "balanceOf(address)(uint256)", ACCOUNT).split()[0])
+        ok(usdg >= 5000 * 10**6, f"{usdg / 1e6:.0f} USDG received")
 
-        # Same card, wrapped token this time.
-        await page.get_by_text(re.compile(r"Wrapped \(w?t?TSLAx\)")).first.click()
-        await page.wait_for_timeout(1500)
-        await page.fill("#earn-amount", "2")
-        await page.wait_for_timeout(2000)
-        await click_tx(page, "Approve wTSLAx")
-        await click_tx(page, "Add and borrow")
-        shown = await wait_text(page, "section[aria-labelledby=pos-title]", lambda t: "No wTSLAx position yet" not in t)
-        ok(shown, "position carries both deposits (collateral, debt, health factor)")
-        await shot(page, "03-earn-position")
-
-        step("5. Buy and Earn: 200 USDG buys the stock and opens the position")
-        await page.get_by_role("tab", name="Buy and Earn").click()
-        await page.wait_for_timeout(1500)
-        await page.fill("#buy-amount", "200")
-        await wait_text(page, "section[aria-labelledby=buy-title]", lambda t: "-" not in t.split("You receive")[-1][:40])
-        await shot(page, "03b-buy-ticket")
-        await click_tx(page, "Approve USDG", scope="section[aria-labelledby=buy-title]")
-        await click_tx(page, "Buy and earn", scope="section[aria-labelledby=buy-title]")
-        grew = await wait_text(page, "section[aria-labelledby=pos-title]",
-                               lambda t: "No wTSLAx position yet" not in t)
-        ok(grew, "position grew from the bought stock")
-        await shot(page, "03c-buy-position")
-
-        step("6. Agents: the stock moves, the position follows, the yield becomes stock")
-        p0 = earn_position()
-        start = tsla_price()
-        push_tsla(start * 12 // 10)                      # the stock gains 20%
-        await page.reload()
+        step("4. Earn: deposit the token an OKX withdrawal delivers, at 25% LTV")
+        await page.get_by_role("link", name="Earn", exact=True).click()
         await page.wait_for_timeout(6000)
-        await shot(page, "03d-agent-offtarget")
-        await click_tx(page, "Rebalance now")
-        moved = await asyncio.to_thread(wait_position, lambda q: q["debt"] > p0["debt"])
-        ok(moved["debt"] > p0["debt"],
-           f"the agent borrowed the difference from the button: debt {p0['debt'] / 1e6:.2f} "
-           f"-> {moved['debt'] / 1e6:.2f} USDG")
+        deposit = card(page, re.compile("^Deposit "))
+        await deposit.get_by_role("button", name="From OKX").click()
+        await page.wait_for_timeout(1500)
+        await fill_amount(deposit, "2")
+        await page.wait_for_timeout(1500)
+        await act(page, deposit, "Deposit and borrow", timeout=300)
+        pos = wait_chain(earn_position, lambda p: p["collateral"] > 0)
+        ok(pos["collateral"] >= 2 * 10**18 and pos["debt"] > 0,
+           f"position open: {pos['collateral'] / 1e18:.4f} wTSLAx, {pos['debt'] / 1e6:.2f} USDG borrowed")
+        await shot(page, "f02-position")
 
-        # Yield the vault has earned, so there is a surplus above the debt to compound.
-        admin_send(DEP["tokens"]["USDG"], "faucet(address,uint256)",
-                   subprocess.check_output(["cast", "wallet", "address", admin_key()], text=True).strip(),
-                   str(200 * 10**6))
-        admin_send(DEP["tokens"]["USDG"], "transfer(address,uint256)", DEP["contracts"]["queue"], str(200 * 10**6))
-        admin_send(DEP["contracts"]["queue"], "settleYield(uint256)", str(200 * 10**6))
-        stock_before = moved["collateral"]
-        await page.reload()
-        await page.wait_for_timeout(8000)
-        await click_tx(page, "Compound yield into stock")
-        grown = await asyncio.to_thread(wait_position, lambda q: q["collateral"] > stock_before)
-        ok(grown["collateral"] > stock_before,
-           f"the yield came back as stock: {stock_before / 1e18:.6f} -> {grown['collateral'] / 1e18:.6f} wTSLAx")
-        await shot(page, "03e-agent-grown")
-        push_tsla(start)
+        step("5. the agent panel reports, and asks nothing of the user")
+        panel = card(page, "Your position")
+        txt = await panel.inner_text()
+        ok("Agents running" in txt, "the position says the agents are running")
+        ok("Rebalance" not in txt and "Compound" not in txt,
+           "no agent button: the user has nothing to press, which is the product")
 
-        step("7. Amplify: 300 USDG at the default leverage")
-        await page.goto(BASE + "/amplify")
-        await page.wait_for_timeout(5000)
-        await page.fill("#amp-amount", "300")
-        await page.wait_for_timeout(2500)
-        await click_tx(page, "Approve USDG")
-        await click_tx(page, "Open at")
-        shown = await wait_text(page, "section[aria-labelledby=amp-pos]",
-                                lambda t: re.search(r"Leverage\s*[12]\.\d\dx", t) is not None)
-        ok(shown, "Amplify position shown (exposure, debt, leverage)")
-        await shot(page, "04-amplify-position")
-
-        step("8. Amplify: close to USDG")
-        await click_tx(page, "Close to USDG")
-        await shot(page, "05-amplify-closed")
-
-        step("9. Earn: close")
-        await page.goto(BASE + "/")
+        step("6. Amplify: open at 2x, then close")
+        await page.get_by_role("link", name="Amplify", exact=True).click()
         await page.wait_for_timeout(6000)
-        sec = page.locator("section[aria-labelledby=pos-title]")
-        btn = sec.locator("button").filter(has_text=re.compile(r"Close to .?TSLAx"))
-        if await btn.count() == 0:
-            btn = sec.locator("button").filter(has_text="Close")
-        label = await btn.first.inner_text()
-        await btn.first.click()
-        t0 = time.time()
-        closed = False
-        while time.time() - t0 < 150:
-            txt = await sec.inner_text()
-            if "No wTSLAx position yet" in txt:
-                closed = True
-                break
-            if await sec.locator("[role=alert]").count() > 0:
-                raise SystemExit("   FAIL: close: " + await sec.locator("[role=alert]").first.inner_text())
-            await page.wait_for_timeout(800)
-        ok(closed, f"Earn closed via '{label.strip()}': the stock comes back in the form an OKX deposit takes")
-        await shot(page, "06-earn-closed")
+        loop = card(page, "Open a loop")
+        await fill_amount(loop, "300")
+        await page.wait_for_timeout(1200)
+        await act(page, loop, "Open at", timeout=300)
+        amp = wait_chain(amplify_position, lambda a: a["exposure"] > 0)
+        ok(amp["exposure"] > 300 * 10**6,
+           f"loop open: {amp['exposure'] / 1e6:.2f} USDG of exposure at {amp['leverageBps'] / 10000:.2f}x")
+        await shot(page, "f03-amplify")
+        await act(page, card(page, "Your loop"), "Close to USDG", timeout=300)
+        amp = wait_chain(amplify_position, lambda a: a["exposure"] == 0)
+        ok(amp["exposure"] == 0, "loop closed, equity back in USDG")
 
-        step("10. Arrow: supply then withdraw 100 USDG")
-        await page.goto(BASE + "/lend")
-        await page.wait_for_timeout(5000)
-        await page.fill("#lend-amount", "100")
-        await click_tx(page, "Approve USDG", scope="section[aria-labelledby=supply-title]")
-        await click_tx(page, "Supply USDG")
-        supplied = await wait_text(page, "section[aria-labelledby=supply-title]",
-                                   lambda t: re.search(r"Your supply\s*\$(9\d|1\d\d)\.", t) is not None)
-        ok(supplied, "supply shown (~100 USDG)")
-        await page.get_by_role("tab", name="withdraw").click()
-        await page.wait_for_timeout(1000)
-        await page.locator("section[aria-labelledby=supply-title]").get_by_role("button", name="Max").click()
-        await click_tx(page, "Withdraw USDG")
-        await shot(page, "07-lend-done")
+        step("7. Lend: supply 100 USDG, then withdraw it")
+        await page.get_by_role("link", name="Lend", exact=True).click()
+        await page.wait_for_timeout(6000)
+        supply = page.locator("div.rounded-2xl").filter(has=page.get_by_role("button", name="Supply USDG")).first
+        await fill_amount(supply, "100")
+        await page.wait_for_timeout(1200)
+        await act(page, supply, "Supply USDG", timeout=300)
+        shares = int(call(DEP["contracts"]["pool"], "balanceOf(address)(uint256)", ACCOUNT).split()[0])
+        ok(shares > 0, f"{shares / 1e6:.2f} pool shares held")
+        await supply.get_by_role("button", name="withdraw").click()
+        await page.wait_for_timeout(1500)
+        await fill_amount(supply, "100")
+        await page.wait_for_timeout(1200)
+        await act(page, supply, "Withdraw USDG", timeout=300)
+        ok(True, "withdrawn")
 
-        ok(not PAGE_ERRORS, f"no page errors ({len(PAGE_ERRORS)})" if not PAGE_ERRORS else PAGE_ERRORS[0][:200])
+        step("8. Earn: close, the stock comes back as the token OKX accepts")
+        await page.get_by_role("link", name="Earn", exact=True).click()
+        await page.wait_for_timeout(6000)
+        await act(page, card(page, "Your position"), "Close, send the stock back", timeout=300)
+        pos = wait_chain(earn_position, lambda p: p["collateral"] == 0)
+        ok(pos["collateral"] == 0 and pos["debt"] == 0, "position closed, nothing left owed")
+        await shot(page, "f04-closed")
+
+        step("9. no page errors")
+        ok(not PAGE_ERRORS, f"no page errors ({len(PAGE_ERRORS)})")
+
         await browser.close()
-    print(f"\n\033[1mUI E2E PASSED\033[0m  screenshots: {OUT}")
+
+    print(f"\n\033[1mUI E2E PASSED\033[0m  screenshots: {OUT}", flush=True)
 
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())
