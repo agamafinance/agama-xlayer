@@ -60,6 +60,11 @@ DS_KEY = os.environ.get("DS_API_KEY", "")
 DS_SECRET = os.environ.get("DS_API_SECRET", "")
 DS_HOST = os.environ.get("DS_HOST", "https://api.dataengine.chain.link")
 INTERVAL = int(os.environ.get("INTERVAL", "300"))
+# Gas ceilings per kind of call, each several times what it actually burns.
+GAS_PRICE_PUSH = 400_000      # one oracle push, signed payload included
+GAS_AGENT = 3_000_000         # rebalance, compound (a swap through a router)
+GAS_PROTECTION = 6_000_000    # soft deleverage and liquidation walk positions
+DEFAULT_GAS = GAS_PROTECTION
 
 TICKERS = ["TSLA", "NVDA", "SPY", "AAPL"]
 # Tickers RedStone publishes (no SPY, no ETFs).
@@ -115,20 +120,25 @@ def call(to, sig, *args, rpc=RPC):
     return cast("call", to, sig, *args, rpc=rpc)
 
 
-def send(to, sig, *args):
+def send(to, sig, *args, gas=DEFAULT_GAS):
     """`sig` may be a signature plus args, or a full calldata hex blob.
 
     Always checks the receipt: a mined-but-reverted transaction must never be
     reported as a success (a keeper that lies about a liquidation is worse than
-    one that stops). Gas is set explicitly because estimation is tight on the
-    loop-heavy paths and blocks here hold 200M+.
+    one that stops).
+
+    Gas is set explicitly because estimation is tight on the loop-heavy paths,
+    but the limit is per call rather than one blanket number. A node requires
+    the sender to cover `gasLimit * gasPrice` up front even when the call burns
+    a fraction of it, so a 6M limit on a 60k price push means a keeper with a
+    faucet-sized balance cannot push a price at all.
     """
     if not KEY:
         raise RuntimeError("KEEPER_KEY not set")
     for attempt in range(6):
         try:
             out = cast("send", to, sig, *args, "--private-key", KEY,
-                       "--gas-limit", "6000000", "--json")
+                       "--gas-limit", str(gas), "--json")
             receipt = json.loads(out)
             if receipt.get("status") not in ("0x1", 1, "1"):
                 raise RuntimeError(f"reverted: {receipt.get('transactionHash')}")
@@ -215,7 +225,7 @@ def tick_redstone(dep):
         return
     tickers = "[" + ",".join(b32(t) for t in REDSTONE_TICKERS) + "]"
     calldata = subprocess.check_output(["cast", "calldata", "pushRedStone(bytes32[])", tickers], text=True).strip()
-    send(oracle, calldata + payload.stdout.strip())
+    send(oracle, calldata + payload.stdout.strip(), gas=GAS_PRICE_PUSH)
     time.sleep(2)  # load-balanced RPCs lag a block; read after they catch up
     prices = {t: round(first_int(call(oracle, "feed(bytes32)((uint128,uint64,bool,bool))", b32(t))
                                   .strip("()").split(", ")[0]) / 1e18, 2) for t in REDSTONE_TICKERS}
@@ -226,7 +236,7 @@ def tick_prices(dep):
     oracle = dep["contracts"]["oracle"]
     if DS_KEY and DS_SECRET:
         reports = data_streams_reports()
-        send(oracle, "pushReports(bytes[])", "[" + ",".join(reports) + "]")
+        send(oracle, "pushReports(bytes[])", "[" + ",".join(reports) + "]", gas=GAS_PRICE_PUSH)
         log("Data Streams: pushed", len(reports), "verified reports")
         return
     prices = arbitrum_prices()
@@ -247,7 +257,8 @@ def tick_prices(dep):
         return
     tick_arr = "[" + ",".join(b32(t) for t in names) + "]"
     px_arr = "[" + ",".join(str(prices[t]) for t in names) + "]"
-    send(oracle, "pushMany(bytes32[],uint256[],uint64,bool)", tick_arr, px_arr, str(ts), "true" if is_open else "false")
+    send(oracle, "pushMany(bytes32[],uint256[],uint64,bool)", tick_arr, px_arr, str(ts),
+         "true" if is_open else "false", gas=GAS_PRICE_PUSH)
     log("relay:", {t: round(prices[t] / 1e18, 2) for t in names}, "open" if is_open else "closed")
 
 
@@ -333,7 +344,7 @@ def tick_agents(dep):
                 actionable = (wanted > debt + band) or (debt > wanted + band and buffer_ > 0)
                 if actionable:
                     try:
-                        send(acct, "rebalance(address)", adapter)
+                        send(acct, "rebalance(address)", adapter, gas=GAS_AGENT)
                         log(f"rebalanced {acct[:10]} on {ticker}: {debt / 1e6:.2f} -> "
                             f"{first_int(call(pool, 'getPositionScaledDebt(address,address,bytes)(uint256)', adapter, acct, '0x')) / 1e6:.2f} USDG")
                     except RuntimeError as e:
@@ -353,7 +364,7 @@ def tick_agents(dep):
                 continue
             try:
                 send(acct, "compoundIntoStock(address,uint256,address,address,bytes,uint256)",
-                     adapter, str(profit), target_, spender, data, str(min_out))
+                     adapter, str(profit), target_, spender, data, str(min_out), gas=GAS_AGENT)
                 log(f"compounded {profit / 1e6:.2f} USDG of yield into {ticker} for {acct[:10]}")
             except RuntimeError as e:
                 log(f"compound {acct[:10]} {ticker}: {str(e)[:90]}")
@@ -363,7 +374,7 @@ def tick_snapshot(dep):
     va = dep["adapters"]["VAULT"]
     last = first_int(call(va, "snapshotAt()(uint256)"))
     if time.time() > last + 86400 + 60:
-        send(va, "snapshot()")
+        send(va, "snapshot()", gas=GAS_PRICE_PUSH)
         log("vault CAPO snapshot")
 
 
