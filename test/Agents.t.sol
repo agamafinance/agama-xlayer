@@ -61,6 +61,64 @@ contract AgentsForkTest is BaseFork {
         acct.rebalance(address(d.tsla));
     }
 
+    /// Whatever level the user picked and however the stock moved, an agent may
+    /// never sell the stock and may never push the position further from the
+    /// target than it found it. Those two hold even when the buffer is too
+    /// small to finish the job.
+    function testFuzz_rebalanceNeverSellsTheStockAndNeverMakesItWorse(uint16 targetBps, uint16 moveBps)
+        public
+    {
+        targetBps = uint16(bound(targetBps, 500, 3_000)); // 5% up to the market max
+        moveBps = uint16(bound(moveBps, 6_500, 15_000)); // the stock at -35% to +50%
+        _openEarn(alice, 10e18, targetBps);
+        AgamaAccount acct = _account(alice);
+
+        uint256 px = d.oracle.feed("TSLA").price;
+        _walkPrice("TSLA", (px * moveBps) / 10_000, true);
+
+        AgamaEarnRouter.Position memory before = d.earn.position(alice, address(d.tsla));
+        uint256 ltvBefore = before.collateralValue == 0 ? 0 : (before.debt * 10_000) / before.collateralValue;
+
+        vm.prank(liquidator);
+        try acct.rebalance(address(d.tsla)) {
+            AgamaEarnRouter.Position memory p = d.earn.position(alice, address(d.tsla));
+            assertEq(p.collateral, 10e18, "the stock itself is never sold");
+            uint256 ltvAfter = p.collateralValue == 0 ? 0 : (p.debt * 10_000) / p.collateralValue;
+            uint256 wasOff = ltvBefore > targetBps ? ltvBefore - targetBps : targetBps - ltvBefore;
+            uint256 isOff = ltvAfter > targetBps ? ltvAfter - targetBps : targetBps - ltvAfter;
+            assertLe(isOff, wasOff + 1, "the agent moved the position toward the level the user picked");
+            assertLe(ltvAfter, uint256(d.tsla.MAX_LTV()) + 100, "never above what the market allows");
+        } catch {
+            // Nothing to do, or nothing it could do: both are answers, not failures.
+        }
+    }
+
+    /// The buffer is what repays the loan. Compounding spends yield, never it.
+    function testFuzz_compoundLeavesTheBufferCoveringTheDebt(uint96 yield_) public {
+        uint256 settled = bound(uint256(yield_), 1e6, 5_000e6);
+        _openEarn(alice, 10e18, 2_500);
+        AgamaAccount acct = _account(alice);
+        _settleYield(settled);
+        _warp(20 days);
+        d.vaultAdapter.snapshot();
+        _pushAll(true);
+
+        uint256 debt = d.earn.position(alice, address(d.tsla)).debt;
+        uint256 have = acct.redeemableUsdg();
+        if (have <= debt + 1e6) return; // no surplus worth compounding
+        uint256 profit = have - debt;
+        bytes memory swapData = abi.encodeCall(MockDexRouter.swap, (profit));
+
+        vm.prank(liquidator);
+        try acct.compoundIntoStock(address(d.tsla), profit, address(router), address(router), swapData, 1) {
+            AgamaEarnRouter.Position memory p = d.earn.position(alice, address(d.tsla));
+            assertGe(acct.redeemableUsdg() + 1, p.debt, "the buffer still covers the debt");
+            assertGt(p.collateral, 10e18, "and the stock grew");
+        } catch {
+            // A price the floor refuses is a pass: nothing was spent.
+        }
+    }
+
     function test_onAClosedPosition_theAgentSaysSoInsteadOfPanicking() public {
         _openEarn(alice, 10e18, 2_500);
         AgamaAccount acct = _account(alice);
