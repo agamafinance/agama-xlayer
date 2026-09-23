@@ -137,7 +137,7 @@ The end-to-end scenario: Alice opens Earn on 10 wTSLAx at 25%, Carol at 30% with
 
 ### X Layer testnet (chain 1952), live
 
-All contracts are source-verified on the OKLink explorer. X Layer testnet has no USDG and no xStocks, so they are public-faucet stand-ins there (same decimals, same ERC-4626 wrapper shape); the Arrow x Agama contracts are the exact mainnet code and wiring.
+All contracts are source-verified on the OKLink explorer. One note, until the next deploy: `AgamaAccount` gained an on-chain slippage floor on the compound path after this deployment went out, so the live implementation is one commit behind `src/`. `./scripts/testnet-refresh.sh` redeploys, reverifies and regenerates everything in one go. X Layer testnet has no USDG and no xStocks, so they are public-faucet stand-ins there (same decimals, same ERC-4626 wrapper shape); the Arrow x Agama contracts are the exact mainnet code and wiring.
 
 | Contract | Address |
 |---|---|
