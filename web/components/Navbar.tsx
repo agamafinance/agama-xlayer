@@ -49,7 +49,6 @@ const NAV: Record<Platform, { href: string; label: string }[]> = {
   ],
   robinhood: [],
   xlayer: [
-    { href: '/xlayer/portfolio', label: 'Portfolio' },
     { href: '/xlayer', label: 'Earn' },
     { href: '/xlayer/amplify', label: 'Amplify' },
     { href: '/xlayer/lend', label: 'Lend' },
