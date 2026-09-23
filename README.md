@@ -14,7 +14,7 @@ Built for OKX Dev Day 2026, track **Build a Market** (tokenized stocks and RWA o
 
 - **xStocks are native on X Layer**: 928 tokenized equities, about 173M$ of market cap. No lending market accepts them as collateral today (Aave on X Layer lists none, and there is no Morpho or Euler).
 - **USDG is X Layer's dollar**: 1.51B$ of supply, almost none of it in DeFi. Arrow lenders earn a borrow rate backed by overcollateralized stock loans instead of leaving it idle.
-- **No stock price a lending market can read**: Chainlink has no equity push feed on X Layer, and Data Streams is not live there either. The OKX team confirmed it on 2026-09-23, and the chain agrees: the VerifierProxy is deployed on both networks but mainnet never had a verifier initialized on it (`getVerifier` returns the zero address). So the price layer is something a lender has to build.
+- **No stock price a lending market can read**: Chainlink has no equity push feed on X Layer, and Data Streams is not live there either. The OKX team confirmed it on 2026-09-23, and the chain agrees: the VerifierProxy is deployed on both networks but mainnet never had a verifier initialized on it (`getVerifier` returns the zero address). So the price layer is something a lender has to build, and that is what `RedStoneStockOracle` is.
 
 ## Architecture
 
@@ -58,6 +58,7 @@ flowchart LR
 | `ArrowXStockAdapter` | One per stock. Holds the **ERC-4626 wrapper** (the base xStock rebases), prices it as `stock price x wrapper.convertToAssets(1e18)` so dividends are counted. Market closed: no new borrows and a lower liquidation threshold (weekend buffer). |
 | `ArrowVaultShareAdapter` | Agama vault shares as collateral: exchange-rate pricing (never a hardcoded 1$), CAPO growth cap, 3% haircut, circuit breaker that pauses borrows if the NAV drops 2% under the snapshot, without blocking liquidations. |
 | `ArrowStabilityPool` | Liquidation backstop (Arrow model). `liquidate` is permissionless. Seized stocks are sold to anyone at the oracle price minus 3% (`buyCollateral`), since X Layer DEX depth for xStocks is a few dollars. Seized vault shares are redeemed with priority. |
+| `RedStoneStockOracle` | The oracle the markets read. Adds the RedStone path on top of the two below: permissionless `pushRedStone`, 3 of 5 signers, median, 8 to 18 decimals, and a refusal to move a price while the keeper has the market marked closed. |
 | `DataStreamsStockOracle` | Stores prices a lending market can read. Verifies Chainlink Data Streams v11 reports on-chain (permissionless) and accepts a bounded keeper relay. Market status aware (24/5), sequencer-uptime check, never falls back to a default price. |
 | `AgamaAccount` | The borrower of record, one clone per user. Earn open/close, `softDeleverage` (anyone, HF < 1.15 -> back to 1.40), Amplify loop and unwind, `autoUnwind` spread guard. |
 | `AgamaZapRouter` | Buy and Earn. Calls the OKX DEX aggregator with calldata built off-chain, measures what actually arrived, and opens the Earn position for the buyer. Only governor-allowlisted routers can be called or approved, and the amount bought is checked against the aggregator's `minReceiveAmount`. |
@@ -88,7 +89,7 @@ Imported unchanged: `DebtToken`, rate and reserve libraries, `agUSD`, `sagUSD`.
 
 ```bash
 forge build
-forge test                         # 54 tests, most on a fork of X Layer mainnet (real USDG, real xStocks)
+forge test                         # 60 tests, most on a fork of X Layer mainnet (real USDG, real xStocks)
 
 # local X Layer mainnet fork with the full stack and real Chainlink prices
 anvil --fork-url https://rpc.xlayer.tech --chain-id 1961 &
@@ -105,7 +106,7 @@ The end-to-end scenario: Alice opens Earn on 10 wTSLAx at 25%, Carol at 30% with
 
 ### X Layer testnet (chain 1952), live
 
-All 26 contracts are source-verified on the OKLink explorer. X Layer testnet has no USDG and no xStocks, so they are public-faucet stand-ins there (same decimals, same ERC-4626 wrapper shape); the Arrow x Agama contracts are the exact mainnet code and wiring.
+All contracts are source-verified on the OKLink explorer. X Layer testnet has no USDG and no xStocks, so they are public-faucet stand-ins there (same decimals, same ERC-4626 wrapper shape); the Arrow x Agama contracts are the exact mainnet code and wiring.
 
 | Contract | Address |
 |---|---|
@@ -172,8 +173,13 @@ Two things we learned doing it, both handled in the code: the aggregator's JIT r
 
 ## Oracle: how prices reach X Layer
 
-1. **Chainlink relay** (what runs today): the keeper reads the Chainlink TSLA/USD, NVDA/USD, SPY/USD and AAPL/USD push feeds on Arbitrum and writes them through `pushMany`, bounded on-chain by a 15% per-update deviation cap (50% on a reopen gap), with market status from the xStocks 24/5 calendar. The keeper is a trusted role, bounded by those caps.
-2. **Chainlink Data Streams** (ready, waiting on the network): `pushReports` verifies a signed v11 report against the X Layer VerifierProxy and is permissionless, since a verified report is the source of truth whoever carries it. Our contract enforces expiry, age and ordering itself, because the FeeManager that usually does it is absent here. Data Streams is not live on X Layer yet (see above), so this path ships dormant: when it is switched on, adding the stream ids is a governance call, no redeploy.
+X Layer has no equity price a contract can read, so the oracle is part of the product. Three write paths, one contract, in order of trust:
+
+1. **RedStone signed prices** (TSLA, NVDA, AAPL, what runs today): anyone can call `pushRedStone` with a RedStone data package appended to the calldata. The contract recovers the signatures and requires **3 of the 5 authorised signers**, takes the median, and checks the package is under three minutes old. Nothing is deployed by RedStone: the pull model lives entirely in the consumer, which is why it works on X Layer at all. Live on testnet: TSLA 378.83, NVDA 228.86, AAPL 339.76, verified on-chain.
+2. **Chainlink relay** (SPY, and market status): RedStone does not publish SPY or ETFs, so the keeper relays the Chainlink SPY/USD push feed from Arbitrum through `pushMany`, bounded on-chain by a 15% per-update deviation cap (50% on a reopen gap). The keeper also owns the **market status**: RedStone keeps publishing out of session with a fresh timestamp and a flat value, so a signed package proves freshness, never that the market trades. A signed push is refused while a ticker is marked closed, which is what keeps the Friday close frozen all weekend.
+3. **Chainlink Data Streams** (dormant): `pushReports` verifies a signed v11 report against the X Layer VerifierProxy, enforcing expiry, age and ordering ourselves since the FeeManager that usually does it is absent. Data Streams is not live on X Layer, so this path ships unused; switching it on is a governance call, no redeploy.
+
+Licensing note: the RedStone consumer contracts are vendored under `lib/redstone-evm-connector` and are **BUSL-1.1**. Redistribution and non-production use are granted, production use needs a grant from the licensor. Fine for this deployment, to be agreed with RedStone before a production launch.
 
 ## Known limits, stated plainly
 

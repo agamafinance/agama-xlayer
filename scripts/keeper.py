@@ -4,6 +4,12 @@
 One tick does three jobs:
 
 1. Prices. Writes TSLA / NVDA / SPY / AAPL into the StockOracle.
+   - RedStone (default for TSLA, NVDA, AAPL): a signed data package is fetched
+     from the public gateway, appended to the calldata of `pushRedStone`, and
+     the signatures of three of five authorised signers are checked on-chain.
+     RedStone stops publishing when the US market closes, so a failed push
+     outside trading hours is expected, and the relay below keeps the market
+     status up to date. RedStone does not publish SPY.
    - Preferred: Chainlink Data Streams. If DS_API_KEY and DS_API_SECRET are set,
      the keeper fetches the latest signed v11 reports and calls
      `pushReports(bytes[])`. The oracle verifies them on-chain against the X Layer
@@ -23,7 +29,7 @@ Requires Foundry's `cast` on PATH. Config via env:
   RPC_URL (default https://rpc.xlayer.tech), DEPLOYMENT (deployments/196.json),
   KEEPER_KEY (private key with KEEPER_ROLE), ARB_RPC_URL, DS_API_KEY, DS_API_SECRET,
   DS_HOST (default https://api.dataengine.chain.link), INTERVAL (seconds, default 300),
-  ONCE=1 to run a single tick, JOBS=prices,protection,snapshot to pick jobs.
+  ONCE=1 to run a single tick, JOBS=redstone,prices,protection,snapshot to pick jobs.
 """
 
 import hashlib
@@ -48,6 +54,8 @@ DS_HOST = os.environ.get("DS_HOST", "https://api.dataengine.chain.link")
 INTERVAL = int(os.environ.get("INTERVAL", "300"))
 
 TICKERS = ["TSLA", "NVDA", "SPY", "AAPL"]
+# Tickers RedStone publishes (no SPY, no ETFs).
+REDSTONE_TICKERS = ["TSLA", "NVDA", "AAPL"]
 
 # Chainlink push feeds on Arbitrum One (8 decimals), used for the relay fallback.
 ARB_FEEDS = {
@@ -100,6 +108,7 @@ def call(to, sig, *args, rpc=RPC):
 
 
 def send(to, sig, *args):
+    """`sig` may be a signature plus args, or a full calldata hex blob."""
     if not KEY:
         raise RuntimeError("KEEPER_KEY not set")
     for attempt in range(6):
@@ -174,6 +183,26 @@ def arbitrum_prices():
     return prices
 
 
+def tick_redstone(dep):
+    """Signed RedStone prices, verified on-chain by the oracle."""
+    oracle = dep["contracts"]["oracle"]
+    if not market_open_24_5():
+        log("market closed, RedStone does not publish: skipped")
+        return
+    payload = subprocess.run(["node", os.path.join(ROOT, "scripts", "redstone_payload.js"),
+                              ",".join(REDSTONE_TICKERS)], capture_output=True, text=True)
+    if payload.returncode != 0:
+        log(f"redstone payload failed: {payload.stdout.strip()[:120]}{payload.stderr.strip()[:120]}")
+        return
+    tickers = "[" + ",".join(b32(t) for t in REDSTONE_TICKERS) + "]"
+    calldata = subprocess.check_output(["cast", "calldata", "pushRedStone(bytes32[])", tickers], text=True).strip()
+    send(oracle, calldata + payload.stdout.strip())
+    time.sleep(2)  # load-balanced RPCs lag a block; read after they catch up
+    prices = {t: round(first_int(call(oracle, "feed(bytes32)((uint128,uint64,bool,bool))", b32(t))
+                                  .strip("()").split(", ")[0]) / 1e18, 2) for t in REDSTONE_TICKERS}
+    log("redstone:", prices, "(signed, verified on-chain)")
+
+
 def tick_prices(dep):
     oracle = dep["contracts"]["oracle"]
     if DS_KEY and DS_SECRET:
@@ -185,7 +214,12 @@ def tick_prices(dep):
     if not prices:
         return
     is_open = market_open_24_5()
-    names = [t for t in TICKERS if t in prices]
+    # While the market trades, RedStone signs TSLA, NVDA and AAPL, so the relay
+    # only carries SPY. At the close it carries every ticker once, to flip the
+    # market status and freeze the last price for the weekend.
+    names = [t for t in TICKERS if t in prices and (not is_open or t not in REDSTONE_TICKERS)]
+    if not names:
+        return
     # Observation time = chain time (a fork's clock may lag the wall clock).
     ts = first_int(cast("block", "latest", "-f", "timestamp"))
     stored = call(oracle, "feed(bytes32)((uint128,uint64,bool,bool))", b32(names[0]))
@@ -240,8 +274,9 @@ def main():
     dep = json.load(open(DEPLOYMENT))
     log("keeper on chain", dep["chainId"], "source:", "Data Streams" if DS_KEY else "Chainlink Arbitrum relay")
     while True:
-        jobs = {"prices": tick_prices, "protection": tick_protection, "snapshot": tick_snapshot}
-        selected = os.environ.get("JOBS", "prices,protection,snapshot").split(",")
+        jobs = {"redstone": tick_redstone, "prices": tick_prices,
+                "protection": tick_protection, "snapshot": tick_snapshot}
+        selected = os.environ.get("JOBS", "redstone,prices,protection,snapshot").split(",")
         for job in (jobs[j] for j in selected):
             try:
                 job(dep)

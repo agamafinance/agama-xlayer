@@ -14,7 +14,8 @@ import {ArrowStabilityPool, IagUSDQueueRedeem} from "../src/arrow/ArrowStability
 import {ArrowXStockAdapter} from "../src/arrow/adapters/ArrowXStockAdapter.sol";
 import {ArrowVaultShareAdapter} from "../src/arrow/adapters/ArrowVaultShareAdapter.sol";
 import {StockOracle} from "../src/arrow/oracle/StockOracle.sol";
-import {DataStreamsStockOracle, IVerifierProxy} from "../src/arrow/oracle/DataStreamsStockOracle.sol";
+import {IVerifierProxy} from "../src/arrow/oracle/DataStreamsStockOracle.sol";
+import {RedStoneStockOracle} from "../src/arrow/oracle/RedStoneStockOracle.sol";
 import {InterestRateModel as IRM} from "../src/arrow/libs/InterestRateModel.sol";
 
 import {AgamaAccount} from "../src/agama/AgamaAccount.sol";
@@ -88,7 +89,7 @@ abstract contract Deployer {
     }
 
     struct Deployment {
-        DataStreamsStockOracle oracle;
+        RedStoneStockOracle oracle;
         agUSD ag;
         sagUSD vault;
         agUSDQueue queue;
@@ -109,7 +110,7 @@ abstract contract Deployer {
     ///      acting as `cfg.admin`, since it wires roles right after deploying.
     function _deployAll(Config memory cfg) internal returns (Deployment memory d) {
         // 1. Oracle -----------------------------------------------------------------
-        d.oracle = new DataStreamsStockOracle(cfg.admin, cfg.keeper, IVerifierProxy(cfg.assets.verifierProxy));
+        d.oracle = new RedStoneStockOracle(cfg.admin, cfg.keeper, IVerifierProxy(cfg.assets.verifierProxy));
         d.oracle.addFeed("TSLA");
         d.oracle.addFeed("NVDA");
         d.oracle.addFeed("SPY");
@@ -118,6 +119,11 @@ abstract contract Deployer {
         d.oracle.setStream(DS_NVDA, "NVDA", 18, true);
         d.oracle.setStream(DS_SPY, "SPY", 18, true);
         d.oracle.setStream(DS_AAPL, "AAPL", 18, true);
+        // RedStone publishes TSLA, NVDA and AAPL (no SPY, no ETFs): those three
+        // get signed prices verified on-chain, SPY stays on the keeper relay.
+        d.oracle.setRedStoneFeed("TSLA", "TSLA");
+        d.oracle.setRedStoneFeed("NVDA", "NVDA");
+        d.oracle.setRedStoneFeed("AAPL", "AAPL");
         if (cfg.assets.sequencerFeed != address(0)) {
             d.oracle.setSequencerUptimeFeed(cfg.assets.sequencerFeed);
         }
