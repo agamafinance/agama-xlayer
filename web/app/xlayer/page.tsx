@@ -37,7 +37,6 @@ export default function XLayerEarnPage() {
   const position = useXLayerPosition(address, m?.adapter, m?.wrapper, tick);
 
   const [amount, setAmount] = useState('');
-  const [ltv, setLtv] = useState(25);
   const [buying, setBuying] = useState(false);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
@@ -61,14 +60,22 @@ export default function XLayerEarnPage() {
     }
   }, [amount, buying]);
 
-  const maxLtv = m ? Number(m.maxLtv) / 100 : 30;
-  const borrowed = m && amt > 0n ? (amt * m.price / 10n ** 18n) * BigInt(Math.round(ltv * 100)) / BPS : 0n;
+  const canBorrow = m ? m.borrowAllowed : true;
+
+  // The level is not a question for the user. Every market is opened at the
+  // same safety margin, a health factor of 1.60, which is the liquidation
+  // threshold divided by 1.6, and never above what the market allows. On
+  // TSLA's 40% threshold that is the 25% this used to default to; on SPY's
+  // 60% it is 37.5%, because a broad index can carry more and should.
+  const OPEN_HF = 16_000n; // 1.60 in bps
+  const autoLtvBps = m
+    ? (m.liqThreshold * BPS / OPEN_HF < m.maxLtv ? m.liqThreshold * BPS / OPEN_HF : m.maxLtv)
+    : 0n;
+  const ltvBps = canBorrow ? autoLtvBps : 0n;
+  const borrowed = m && amt > 0n ? (amt * m.price / 10n ** 18n) * ltvBps / BPS : 0n;
   const borrowedUsdg = borrowed / 10n ** 12n; // 18 -> 6 decimals
   const spread = proto ? proto.vaultApy - proto.borrowRate : undefined;
-  const extra = spread !== undefined ? (spread * BigInt(Math.round(ltv * 100))) / BPS : undefined;
-
-  const canBorrow = m ? m.borrowAllowed : true;
-  const borrowBlocked = !!m && !canBorrow && ltv > 0;
+  const extra = spread !== undefined ? (spread * ltvBps) / BPS : undefined;
 
   const bump = () => { bumpTick(); refresh(); };
 
@@ -109,7 +116,7 @@ export default function XLayerEarnPage() {
       await ensureAllowance(address, TOKENS.USDG, zap, amt);
       setStatus('Buying and opening…');
       await send(address, zap, zapRouterAbi, 'buyAndEarn',
-        [amt, target, spender, data, m.adapter, minOut, BigInt(Math.round(ltv * 100))]);
+        [amt, target, spender, data, m.adapter, minOut, ltvBps]);
       setStatus('Done');
       setAmount('');
       bump();
@@ -129,7 +136,7 @@ export default function XLayerEarnPage() {
       await ensureAllowance(address, token, ADDR.earnRouter, amt);
       setStatus('Opening the position…');
       await send(address, ADDR.earnRouter, earnRouterAbi, 'openWithBase',
-        [m.adapter, amt, BigInt(Math.round(ltv * 100))]);
+        [m.adapter, amt, ltvBps]);
       setStatus('Done');
       setAmount('');
       bump();
@@ -178,9 +185,9 @@ export default function XLayerEarnPage() {
             get more stock
           </h1>
           <p className="mt-4 max-w-[640px] text-[15px] text-fg-muted">
-            Deposit a tokenized stock, straight out of the OKX app. Agama borrows USDG against it into
-            the private-credit vault, and permissionless agents turn that yield back into more of your
-            stock and hold the position at the level you picked. Live on X Layer Testnet.
+            Deposit a tokenized stock, straight out of the OKX app. Agama borrows USDG against it at a safe
+            level, puts it to work in the private-credit vault, and permissionless agents turn that yield
+            back into more of your stock. Nothing to set, nothing to come back for. Live on X Layer Testnet.
           </p>
 
           <div className="mt-7 flex flex-wrap gap-8">
@@ -259,43 +266,25 @@ export default function XLayerEarnPage() {
                 </div>
               </div>
 
-              <div className="mt-4 rounded-2xl border border-[#254839]/12 bg-white/60 p-4">
-                <div className="flex items-center justify-between text-[12px] text-fg-muted">
-                  <span>How hard your stock works</span>
-                  <span className="text-fg">{ltv.toFixed(0)}% LTV</span>
-                </div>
-                <input
-                  type="range"
-                  min={0}
-                  max={maxLtv}
-                  step={1}
-                  value={ltv}
-                  onChange={(e) => setLtv(Number(e.target.value))}
-                  className="mt-3 w-full accent-[#254839]"
-                />
-                <div className="mt-1 flex justify-between text-[11px] text-fg-muted">
-                  <span>Off, deposit only</span>
-                  <span>{maxLtv}% market max</span>
-                </div>
-                {borrowBlocked && (
-                  <p className="mt-2 text-[12px] text-[#b4571f]">
-                    The equity market is closed, so new borrows are frozen on chain until it reopens.
-                    You can still deposit the stock as collateral, and the position starts earning the
-                    moment borrowing reopens. Slide to zero to deposit now.
-                  </p>
-                )}
-              </div>
-
               <dl className="mt-4 space-y-2 text-[13px]">
-                <Row label="Borrowed into the vault" value={borrowedUsdg > 0n ? usd(borrowedUsdg) : '—'} />
-                <Row label="Extra yield on the stock" value={extra !== undefined && ltv > 0 ? `${rayPct(extra)} a year` : '—'} />
+                <Row
+                  label="Borrowed into the vault"
+                  value={borrowedUsdg > 0n ? `${usd(borrowedUsdg)} · ${pct(ltvBps)} of the stock` : '—'}
+                />
+                <Row label="Extra yield on the stock" value={extra !== undefined && ltvBps > 0n ? `${rayPct(extra)} a year` : '—'} />
+                <Row label="Health factor at open" value={canBorrow ? '1.60' : 'No debt, market closed'} />
               </dl>
+              {!canBorrow && (
+                <p className="mt-3 text-[12px] text-[#b4571f]">
+                  The equity market is closed, so new borrows are frozen on chain. Your stock still goes in
+                  as collateral, and the agents start borrowing against it the moment the market reopens.
+                </p>
+              )}
 
               <button
                 onClick={address ? (buying ? buyAndEarn : open) : connect}
                 disabled={
                   busy ||
-                  borrowBlocked ||
                   (!!address && (amt === 0n || amt > (buying ? (proto?.usdg ?? 0n) : (balance ?? 0n))))
                 }
                 className="mt-4 w-full rounded-full bg-[#254839] px-5 py-3.5 text-[15px] font-medium text-[#fdf8ed] transition-colors hover:bg-[#1F3D31] disabled:opacity-45"
@@ -304,13 +293,11 @@ export default function XLayerEarnPage() {
                   ? 'Connect Wallet'
                   : busy
                     ? status || 'Working…'
-                    : borrowBlocked
-                      ? 'Borrowing frozen, market closed'
-                      : buying
-                        ? 'Buy and earn'
-                        : ltv > 0
-                          ? 'Deposit and borrow'
-                          : 'Deposit as collateral'}
+                    : buying
+                      ? 'Buy and earn'
+                      : canBorrow
+                        ? 'Deposit and start earning'
+                        : 'Deposit as collateral'}
               </button>
               {status && !busy && pending === 'deposit' && (
                 <p className="mt-2 text-[12px] text-fg-muted">{status}</p>
@@ -321,34 +308,10 @@ export default function XLayerEarnPage() {
               <h2 className="text-[17px] font-semibold text-fg">Your position</h2>
 
               {!has ? (
-                <>
-                  <p className="mt-4 text-[14px] text-fg-muted">
-                    No position yet. Deposit a stock: the USDG borrowed against it goes into the Agama vault
-                    and stays in your account as the buffer that protects the stock.
-                  </p>
-                  <ol className="mt-5 space-y-3">
-                    {[
-                      ['Withdraw your stock from the OKX app to X Layer',
-                       `It arrives as ${symbol || 'the base xStock'}, not the ERC-4626 wrapper lending markets take. This one takes it as it comes.`],
-                      ['Deposit it here and pick one level',
-                       'The protocol borrows USDG against it and puts that USDG to work in the Agama private-credit vault.'],
-                      ['Then nothing',
-                       'Agents hold the position at your level as the stock moves, and buy back more stock with the yield. You never have to come back.'],
-                      ['Leave whenever',
-                       'Closing repays from the vault shares and hands you the token an OKX deposit accepts.'],
-                    ].map(([title, body], i) => (
-                      <li key={title} className="flex gap-3">
-                        <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#254839] text-[12px] font-medium text-[#fdf8ed]">
-                          {i + 1}
-                        </span>
-                        <span>
-                          <span className="block text-[14px] text-fg">{title}</span>
-                          <span className="block text-[13px] text-fg-muted">{body}</span>
-                        </span>
-                      </li>
-                    ))}
-                  </ol>
-                </>
+                <p className="mt-4 text-[14px] text-fg-muted">
+                  Nothing here yet. Deposit a stock and the protocol does the rest: it borrows against it,
+                  puts the USDG to work, and keeps the position where it should be.
+                </p>
               ) : (
                 <>
                   <div className="mt-4 flex flex-wrap gap-8">
