@@ -299,6 +299,16 @@ def amp_pos(user):
             "lev": int(f[5]), "hf": int(f[6])}
 
 
+def capo():
+    """(live rate, capped rate) of the vault share, assets per ONE_SHARE.
+
+    Their ratio is how much of a share the CAPO ceiling lets Arrow lend against:
+    1.0 in steady state, below it for as long as a settled coupon is amortising
+    in at the adapter's growth cap. Every Amplify number is measured on it.
+    """
+    return num(call(A["VAULT"], "liveRate()(uint256)")), num(call(A["VAULT"], "cappedRate()(uint256)"))
+
+
 def main():
     print(f"Arrow x Agama e2e on {MODE} (chain {DEP['chainId']}), part {PART}")
     for n, a in ADDR.items():
@@ -326,10 +336,18 @@ def part_a():
     ok(abs(a["debt"] - a["value"] // 4) <= max(2, a["value"] // 4000),
        f"borrowed {a['debt'] / E6:.2f} USDG = 25% of {a['value'] / E6:.2f}")
     ok(abs(a["hf"] - 16 * RAY // 10) < RAY // 1000, f"HF {a['hf'] / RAY:.3f}")
-    # Valued at the adapter's capped rate, which sits under the live vault rate
-    # while a settled yield is still being amortised by the CAPO ceiling.
-    ok(a["debt"] * 99 // 100 <= a["freeValue"] <= a["debt"] + 2,
-       f"{a['freeValue'] / E6:.2f} USDG parked in the Agama vault (debt {a['debt'] / E6:.2f})")
+    # "The borrowed USDG went into the vault" is a question about the shares the
+    # account holds, so ask the vault: `redeemableUsdg` converts them at the
+    # ERC-4626 rate. `freeSharesValue` answers a different question, what those
+    # shares are worth AS COLLATERAL, and the CAPO ceiling deliberately holds
+    # that under the live rate while a settled yield is amortised. Comparing it
+    # to the debt was comparing a haircut to the thing it discounts.
+    redeemable = num(call(a["account"], "redeemableUsdg()(uint256)"))
+    ok(a["debt"] * 999 // 1000 <= redeemable <= a["debt"] + 2,
+       f"{redeemable / E6:.2f} USDG parked in the Agama vault (debt {a['debt'] / E6:.2f})")
+    ok(a["freeValue"] <= redeemable,
+       f"counted as collateral at the capped rate: {a['freeValue'] / E6:.2f} USDG, "
+       f"{(redeemable - a['freeValue']) / E6:.2f} still held back by the CAPO ceiling")
 
     step("3. Carol: Earn at 30% LTV, then withdraws her vault shares (no buffer)")
     send("carol", T["wTSLAx"], "approve(address,uint256)", C["earnRouter"], str(10 * E18))
@@ -342,9 +360,22 @@ def part_a():
     send("bob", T["USDG"], "approve(address,uint256)", C["amplifyRouter"], str(1_000 * E6))
     send("bob", C["amplifyRouter"], "open(uint256,uint256)", str(1_000 * E6), "30000")
     b = amp_pos("bob")
-    # The loop targets 3x on the adapter's capped valuation, so the measured
-    # leverage sits a little above 3x while a recent yield is still amortising.
-    ok(29_000 <= b["lev"] <= 31_000, f"leverage {b['lev'] / 10_000:.2f}x, exposure {b['exposure'] / E6:.2f}, debt {b['debt'] / E6:.2f}, HF {b['hf'] / RAY:.3f}")
+    # 3x is a target on the valuation Arrow lends against, and that valuation is
+    # the CAPO-capped vault rate, not the live one: a coupon that just settled is
+    # not borrowable collateral until the ceiling has amortised it in. So the
+    # loop's debt target is 2x the CAPO value of the deposit, and it stops one hop
+    # short when the remainder falls under `minBorrow`. Asserting a 3.00x reading
+    # instead would be asserting that the cap is never behind, which is the one
+    # thing CAPO exists to allow.
+    live, capped = capo()
+    target = 2 * 1_000 * E6 * capped // live
+    ok(target * 97 // 100 <= b["debt"] <= target * 1005 // 1000,
+       f"borrowed {b['debt'] / E6:.2f} USDG on 1,000 deposited, loop target {target / E6:.2f} "
+       f"(2x the deposit at the capped rate, {capped * 100 / live:.2f}% of live)")
+    fair = (1_000 * E6 + b["debt"]) * capped // live
+    ok(abs(b["exposure"] - fair) <= fair // 500,
+       f"exposure {b['exposure'] / E6:.2f} USDG, everything in the vault at that same rate, "
+       f"so the position reads {b['lev'] / 10_000:.2f}x at HF {b['hf'] / RAY:.3f}")
 
     step("5. vault yield settled (0.5% of vault assets)")
     vault_assets = num(call(C["sagUSD"], "totalAssets()(uint256)")) // 10**12
@@ -458,8 +489,14 @@ def part_b():
     g = earn_pos("grace")
     send("grace", C["amplifyRouter"], "openFromEarn(uint256)", "20000")
     amp = amp_pos("grace")
-    ok(abs(amp["exposure"] - 2 * g["freeValue"]) < g["freeValue"] // 50,
-       f"stacked 2x: exposure {amp['exposure'] / E6:.2f} on a {g['freeValue'] / E6:.2f} buffer")
+    # Same arithmetic as step 4: the loop borrows the buffer's CAPO value, and
+    # what it borrows is counted at that rate too once it is back in the vault.
+    live, capped = capo()
+    fair = g["freeValue"] + amp["debt"] * capped // live
+    ok(g["freeValue"] * 97 // 100 <= amp["debt"] <= g["freeValue"] * 1005 // 1000
+       and abs(amp["exposure"] - fair) <= fair // 200,
+       f"stacked 2x: borrowed {amp['debt'] / E6:.2f} on a {g['freeValue'] / E6:.2f} buffer, "
+       f"exposure {amp['exposure'] / E6:.2f}")
     send("grace", C["amplifyRouter"], "close(bool)", "true")
     acct = g["account"]
     buffer_back = num(call(acct, "redeemableUsdg()(uint256)"))

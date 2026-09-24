@@ -124,6 +124,10 @@ INJECT = """
     on: (ev, fn) => { (listeners[ev] ||= []).push(fn); },
     removeListener: () => {},
   };
+  // The app connects to OKX Wallet and nothing else, so that is what this
+  // pretends to be: its own key, plus the flag OKX sets on its provider.
+  provider.isOkxWallet = true;
+  window.okxwallet = provider;
   window.ethereum = provider;
 })();
 """
@@ -134,6 +138,15 @@ INJECT = """
 
 def call(to, sig, *args):
     return subprocess.check_output(["cast", "call", to, sig, *args, "--rpc-url", RPC], text=True).strip()
+
+
+def balance(token):
+    return int(call(token, "balanceOf(address)(uint256)", ACCOUNT).split()[0])
+
+
+def base_token():
+    """The xStock an OKX withdrawal delivers: the asset under the wrapper."""
+    return call(DEP["tokens"]["wTSLAx"], "asset()(address)").split()[0]
 
 
 def earn_position():
@@ -165,7 +178,7 @@ def fund_on_fork():
     poke(DEP["tokens"]["USDG"], "1", 10_000 * 10**6)
     for w in ("wTSLAx", "wNVDAx", "wSPYx", "wAAPLx"):
         poke(DEP["tokens"][w], "101", 10 * 10**18)
-    base = call(DEP["tokens"]["wTSLAx"], "asset()(address)").split()[0]
+    base = base_token()
     poke(base, "263", 10 * 10**18)
 
 
@@ -312,12 +325,17 @@ async def main():
         else:
             await page.get_by_role("link", name="Faucet", exact=True).click()
             await page.wait_for_timeout(4000)
-            # This page says what it did rather than "Done", and the copy is
-            # better for it.
-            await act(page, page.locator("body"), "Get test tokens", timeout=420,
-                      success="Test tokens received")
-        usdg = int(call(DEP["tokens"]["USDG"], "balanceOf(address)(uint256)", ACCOUNT).split()[0])
-        ok(usdg >= 5000 * 10**6, f"{usdg / 1e6:.0f} USDG in the wallet")
+            # This faucet is a row per asset, and it reports in one line at the
+            # bottom of the page rather than under each button, so the balance
+            # is the verdict. The stocks are eight transactions, four wrappers
+            # and the four base tokens an OKX withdrawal actually sends.
+            body_ = page.locator("body")
+            await act(page, body_, "Mint 5,000 USDG", timeout=300,
+                      settled=lambda: balance(DEP["tokens"]["USDG"]) >= 5000 * 10**6)
+            await act(page, body_, "Mint the stocks", timeout=900,
+                      settled=lambda: balance(base_token()) >= 10 * 10**18)
+        usdg = balance(DEP["tokens"]["USDG"])
+        ok(usdg >= 5000 * 10**6, f"{usdg / 1e6:.0f} USDG and 10 of each stock in the wallet")
 
         step("4. Earn: deposit the token an OKX withdrawal delivers, at 25% LTV")
         await page.get_by_role("link", name="Earn", exact=True).click()
@@ -327,7 +345,7 @@ async def main():
         deposit = card(page, re.compile("^Deposit "))
         await fill_amount(deposit, "2")
         await page.wait_for_timeout(1500)
-        await act(page, deposit, "Deposit and borrow", timeout=300)
+        await act(page, deposit, "Deposit and start earning", timeout=300)
         pos = wait_chain(earn_position, lambda p: p["collateral"] > 0)
         ok(pos["collateral"] >= 2 * 10**18 and pos["debt"] > 0,
            f"position open: {pos['collateral'] / 1e18:.4f} TSLAx, {pos['debt'] / 1e6:.2f} USDG borrowed")
