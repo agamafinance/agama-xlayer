@@ -8,7 +8,7 @@ import { TokenIcon } from '@/components/icons/TokenIcon';
 import { ADAPTERS, ADDR, EXPLORER, RAY, STOCK_DECIMALS, STOCKS, TOKENS, USDG_DECIMALS } from '@/lib/xlayer/config';
 import { accountAbi, amplifyRouterAbi, earnRouterAbi, lendingPoolAbi } from '@/lib/xlayer/generated/abis';
 import {
-  atLiveRate, erc20Abi, pub, useTick, useXLayerProtocol,
+  atLiveRate, erc20Abi, pub, useTick, useXLayerMarkets, useXLayerProtocol,
   type AmplifyPosition, type RouterPosition,
 } from '@/lib/xlayer/useXLayer';
 import { useXLayerWallet } from '@/lib/xlayer/WalletProvider';
@@ -27,6 +27,7 @@ interface StockRow {
   /// Held: in the wallet plus deposited as collateral. It is one holding.
   amount: bigint;
   value: bigint;
+  deposited: bigint;
   debt: bigint;
   hf: bigint;
 }
@@ -35,6 +36,7 @@ export default function XLayerPortfolioPage() {
   const { address, connect } = useXLayerWallet();
   const [tick] = useTick();
   const proto = useXLayerProtocol(address, tick);
+  const { markets } = useXLayerMarkets(address);
 
   const [stocks, setStocks] = useState<StockRow[]>([]);
   const [amp, setAmp] = useState<AmplifyPosition | null>(null);
@@ -47,26 +49,34 @@ export default function XLayerPortfolioPage() {
     (async () => {
       try {
         const rows = await Promise.all(STOCKS.map(async (st) => {
-          const [p, held] = await Promise.all([
+          const wrapper = TOKENS[st.wrapper];
+          const m = markets.find((x) => x.stock.key === st.key);
+          const [p, baseHeld] = await Promise.all([
             pub.readContract({
               address: ADDR.earnRouter, abi: earnRouterAbi, functionName: 'position',
               args: [address, ADAPTERS[st.key]],
             }) as Promise<RouterPosition>,
             pub.readContract({
-              address: TOKENS[st.wrapper], abi: erc20Abi, functionName: 'asset',
+              address: wrapper, abi: erc20Abi, functionName: 'asset',
             }).then((base) => pub.readContract({
               address: base as Address, abi: erc20Abi, functionName: 'balanceOf', args: [address],
             })) as Promise<bigint>,
           ]);
-          // Counted in the base token, the one OKX sends and the app names.
-          const deposited = p.collateral === 0n ? 0n : ((await pub.readContract({
-            address: TOKENS[st.wrapper], abi: erc20Abi, functionName: 'convertToAssets',
-            args: [p.collateral],
-          }).catch(() => p.collateral)) as bigint);
+          // One holding, wherever it sits: pledged as collateral, wrapped in the
+          // wallet, or in the base token OKX sends. Add it up in wrapper shares,
+          // which is the unit the price is quoted in, then say it in the base
+          // token, which is the one the app names.
+          const fromBase = baseHeld === 0n ? 0n : ((await pub.readContract({
+            address: wrapper, abi: erc20Abi, functionName: 'convertToShares', args: [baseHeld],
+          }).catch(() => baseHeld)) as bigint);
+          const shares = p.collateral + (m?.balance ?? 0n) + fromBase;
+          const amount = shares === 0n ? 0n : ((await pub.readContract({
+            address: wrapper, abi: erc20Abi, functionName: 'convertToAssets', args: [shares],
+          }).catch(() => shares)) as bigint);
           return {
             key: st.key, symbol: st.base, name: st.name, account: p.account,
-            amount: deposited + held, value: p.collateralValue, debt: p.debt,
-            hf: p.healthFactorRay,
+            amount, value: (shares * (m?.wrapperPrice ?? 0n)) / 10n ** BigInt(STOCK_DECIMALS),
+            deposited: p.collateral, debt: p.debt, hf: p.healthFactorRay,
           };
         }));
         // The Agama account is one per wallet, so its vault buffer is counted
@@ -100,7 +110,7 @@ export default function XLayerPortfolioPage() {
       }
     })();
     return () => { alive = false; };
-  }, [address, tick]);
+  }, [address, tick, markets]);
 
   const wallet = proto?.usdg ?? 0n;
   // What the wallet would be worth if everything were unwound right now: the
@@ -146,10 +156,14 @@ export default function XLayerPortfolioPage() {
                   key={r.key}
                   icon={r.symbol}
                   title={r.symbol}
-                  name={`${r.name} · ${r.debt > 0n ? `${usd(r.debt)} borrowed` : 'collateral only'}`}
+                  name={`${r.name} · ${
+                    r.debt > 0n
+                      ? `${usd(r.debt)} borrowed`
+                      : r.deposited > 0n ? 'deposited, nothing borrowed' : 'in your wallet'
+                  }`}
                   amount={qty(r.amount)}
                   sub={
-                    r.hf > 0n
+                    r.debt > 0n
                       ? `${usd(r.value)} · health ${(Number(r.hf) / Number(RAY)).toFixed(2)}`
                       : usd(r.value)
                   }
