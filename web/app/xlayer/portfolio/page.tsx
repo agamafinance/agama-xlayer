@@ -21,7 +21,8 @@ interface StockRow {
   key: string;
   symbol: string;
   name: string;
-  collateral: bigint;
+  /// Held: in the wallet plus deposited as collateral. It is one holding.
+  amount: bigint;
   value: bigint;
   debt: bigint;
   buffer: bigint;
@@ -42,14 +43,19 @@ export default function XLayerPortfolioPage() {
     let alive = true;
     (async () => {
       try {
-        const rows = await Promise.all(STOCKS.map(async (s) => {
-          const p = (await pub.readContract({
-            address: ADDR.earnRouter, abi: earnRouterAbi, functionName: 'position',
-            args: [address, ADAPTERS[s.key]],
-          })) as RouterPosition;
+        const rows = await Promise.all(STOCKS.map(async (st) => {
+          const [p, held] = await Promise.all([
+            pub.readContract({
+              address: ADDR.earnRouter, abi: earnRouterAbi, functionName: 'position',
+              args: [address, ADAPTERS[st.key]],
+            }) as Promise<RouterPosition>,
+            pub.readContract({
+              address: TOKENS[st.wrapper], abi: erc20Abi, functionName: 'balanceOf', args: [address],
+            }) as Promise<bigint>,
+          ]);
           return {
-            key: s.key, symbol: s.wrapper, name: s.name,
-            collateral: p.collateral, value: p.collateralValue, debt: p.debt,
+            key: st.key, symbol: st.wrapper, name: st.name,
+            amount: p.collateral + held, value: p.collateralValue, debt: p.debt,
             buffer: p.freeSharesValue, hf: p.healthFactorRay,
           };
         }));
@@ -65,7 +71,7 @@ export default function XLayerPortfolioPage() {
             })) as bigint)
           : 0n;
         if (alive) {
-          setStocks(rows.filter((r) => r.collateral > 0n || r.debt > 0n));
+          setStocks(rows.filter((r) => r.amount > 0n || r.debt > 0n));
           setAmp(a.exposure > 0n ? a : null);
           setSupplied(lent);
         }
@@ -121,7 +127,7 @@ export default function XLayerPortfolioPage() {
                   icon={r.symbol}
                   title={r.symbol}
                   name={`${r.name} · ${r.debt > 0n ? `${usd(r.debt)} borrowed` : 'collateral only'}`}
-                  amount={qty(r.collateral)}
+                  amount={qty(r.amount)}
                   sub={
                     r.hf > 0n
                       ? `${usd(r.value)} · health ${(Number(r.hf) / Number(RAY)).toFixed(2)}`
@@ -136,7 +142,7 @@ export default function XLayerPortfolioPage() {
                   icon="sagUSD"
                   title="Amplify"
                   name={`Vault loop at ${(Number(amp.leverageBps) / 10_000).toFixed(2)}x`}
-                  amount={usd(amp.exposure)}
+                  amount={Number(formatUnits(amp.exposure, USDG_DECIMALS)).toFixed(2)}
                   sub={`${usd(amp.equity)} of equity · ${usd(amp.debt)} borrowed`}
                   href="/xlayer/amplify"
                 />
@@ -147,8 +153,8 @@ export default function XLayerPortfolioPage() {
                   icon="USDG"
                   title="Supplied to Arrow"
                   name="Lending USDG against tokenized stocks"
-                  amount={usd(supplied)}
-                  sub="Redeemable now"
+                  amount={Number(formatUnits(supplied, USDG_DECIMALS)).toFixed(2)}
+                  sub={`${usd(supplied)} · redeemable now`}
                   href="/xlayer/lend"
                 />
               )}
@@ -156,12 +162,13 @@ export default function XLayerPortfolioPage() {
               <Row
                 icon="USDG"
                 title="USDG"
-                name="In your wallet"
-                amount={usd(wallet)}
+                name="Global Dollar"
+                amount={Number(formatUnits(wallet, USDG_DECIMALS)).toFixed(2)}
+                sub={usd(wallet)}
                 href="/xlayer/faucet"
               />
 
-              {stocks.length === 0 && !amp && supplied === 0n && (
+              {stocks.length === 0 && !amp && supplied === 0n && wallet === 0n && (
                 <p className="rounded-2xl bg-[#fdfaf1] px-5 py-4 text-[14px] text-fg-muted shadow-[0_1px_3px_rgba(20,50,35,0.06)]">
                   No position yet. Deposit a stock on{' '}
                   <Link href="/xlayer" className="underline underline-offset-2">Earn</Link> and the agents take it

@@ -41,6 +41,11 @@ export const TOKENS = D.tokens;
 export const ADAPTERS = D.adapters;
 
 export const EXPLORER = xLayerTestnet.blockExplorers.default.url;
+
+/// A file from this app's own public/. app.agama.finance proxies this app and
+/// serves its own public/ on that path, so anything only we have (the X Layer
+/// mark) must be fetched from where it actually exists.
+export const asset = (path: string) => `${process.env.NEXT_PUBLIC_ASSET_PREFIX ?? ''}${path}`;
 export const OKB_FAUCET = 'https://web3.okx.com/xlayer/faucet';
 
 export const USDG_DECIMALS = 6;
