@@ -232,10 +232,23 @@ def tick_redstone(dep):
     log("redstone:", prices, "(signed, verified on-chain)")
 
 
-def _marked_closed(oracle, ticker):
-    """True when the oracle holds a price for `ticker` and has it marked closed."""
+def _feed(oracle, ticker):
     f = call(oracle, "feed(bytes32)((uint128,uint64,bool,bool))", b32(ticker)).strip("()").split(", ")
-    return int(f[0].split()[0]) != 0 and f[2] == "false"
+    return {"price": int(f[0].split()[0]), "observedAt": int(f[1].split()[0]), "open": f[2] == "true"}
+
+
+def _relay_needed(oracle, ticker, now_ts, half_window):
+    """Whether the relay has to carry a ticker RedStone normally owns.
+
+    Two cases. It is marked closed, and only the keeper can lift that. Or its
+    last observation is halfway to expiry: the RedStone gateway is a public
+    service that goes quiet, and a price nobody refreshes stops being a price
+    the markets can borrow against.
+    """
+    f = _feed(oracle, ticker)
+    if f["price"] == 0:
+        return False
+    return not f["open"] or (now_ts - f["observedAt"]) > half_window
 
 
 def tick_prices(dep):
@@ -253,20 +266,23 @@ def tick_prices(dep):
     # only carries SPY. At the close it carries every ticker once, to flip the
     # market status and freeze the last price for the weekend.
     names = [t for t in TICKERS if t in prices and (not is_open or t not in REDSTONE_TICKERS)]
+    # Observation time = chain time (a fork's clock may lag the wall clock).
+    ts = first_int(cast("block", "latest", "-f", "timestamp"))
     if is_open:
         # And at the reopen it has to carry them once more. `pushRedStone`
         # refuses to write a ticker whose stored status says closed, by design:
         # RedStone keeps publishing out of session and the close must stay
         # frozen. So RedStone cannot lift its own freeze. Only the keeper can,
-        # and if it never does, those three tickers stay shut for good.
-        names += [t for t in REDSTONE_TICKERS if t in prices and t not in names and _marked_closed(oracle, t)]
+        # and if it never does, those three tickers stay shut for good. The
+        # same carry covers a gateway that has simply gone quiet.
+        half = first_int(call(oracle, "maxOpenStaleness()(uint256)")) // 2
+        names += [t for t in REDSTONE_TICKERS
+                  if t in prices and t not in names and _relay_needed(oracle, t, ts, half)]
     if not names:
         return
-    # Observation time = chain time (a fork's clock may lag the wall clock).
     # The oracle refuses an observation that is not newer than the one it holds,
     # per ticker, so the whole batch has to clear the NEWEST of them. Checking
     # only the first one sends a push that reverts on the second.
-    ts = first_int(cast("block", "latest", "-f", "timestamp"))
     newest = 0
     for t in names:
         f = call(oracle, "feed(bytes32)((uint128,uint64,bool,bool))", b32(t)).strip("()").split(", ")
