@@ -98,7 +98,16 @@ export function useTick(everyMs = 12000): [number, () => void] {
     const id = setInterval(bump, everyMs);
     return () => clearInterval(id);
   }, [bump, everyMs]);
-  return [tick, bump];
+  // One re-read after an action is not enough: the node that answers first can
+  // still be a block behind the transaction that just landed, and the next
+  // timer tick is a long time to leave someone looking at a balance that says
+  // their deposit did not happen. Chase it over the next few seconds instead.
+  const bumpNow = useCallback(() => {
+    bump();
+    const ids = [1500, 4000, 8000].map((ms) => setTimeout(bump, ms));
+    return () => ids.forEach(clearTimeout);
+  }, [bump]);
+  return [tick, bumpNow];
 }
 
 export function useXLayerMarkets(address?: Address) {

@@ -55,11 +55,28 @@ def admin_key():
     return (d[0] if isinstance(d, list) else d)["private_key"]
 
 
-# A fresh throwaway wallet per run: the flow is always the first-time user path.
-# On a fork an anvil account is used instead, already funded with gas.
-UI_KEY = ANVIL_UI if IS_FORK else (lambda w: (w[0] if isinstance(w, list) else w)["private_key"])(
-    json.loads(subprocess.check_output(["cast", "wallet", "new", "--json"]))
-)
+def throwaway():
+    """A fresh wallet per run: the flow is always the first-time user path.
+
+    On a fork an anvil account is used instead, already funded with gas.
+    UI_REUSE=1 keeps the wallet between runs, which is for debugging a late
+    step without minting and depositing all over again.
+    """
+    if IS_FORK:
+        return ANVIL_UI
+    path = os.path.join(ROOT, ".keys", "ui_e2e.json")
+    reuse = os.environ.get("UI_REUSE") == "1"
+    if reuse and os.path.exists(path):
+        return json.load(open(path))["private_key"]
+    w = json.loads(subprocess.check_output(["cast", "wallet", "new", "--json"]))
+    w = w[0] if isinstance(w, list) else w
+    if reuse:
+        json.dump({"private_key": w["private_key"]}, open(path, "w"))
+        os.chmod(path, 0o600)
+    return w["private_key"]
+
+
+UI_KEY = throwaway()
 ACCOUNT = subprocess.check_output(["cast", "wallet", "address", UI_KEY], text=True).strip()
 
 
@@ -77,12 +94,17 @@ def send_tx(tx):
         args += ["--value", str(int(tx["value"], 16))]
     if tx.get("gas"):
         args += ["--gas-limit", str(int(int(tx["gas"], 16) * 12 // 10))]
+    # The public testnet RPC is load balanced: a node one block behind hands out
+    # a stale nonce, and transport errors come back for no reason of ours. Only
+    # a revert is worth failing the run on.
+    transient = ("nonce too low", "already known", "error sending request", "timed out",
+                 "connection reset", "502", "503", "504", "EOF")
     for attempt in range(6):
         r = subprocess.run(args, capture_output=True, text=True)
         if r.returncode == 0:
             return r.stdout.strip().splitlines()[-1]
-        if "nonce too low" in r.stderr and attempt < 5:
-            time.sleep(3)
+        if attempt < 5 and any(t in r.stderr for t in transient):
+            time.sleep(2 + 2 * attempt)
             continue
         raise RuntimeError(r.stderr.strip()[-300:])
 
@@ -105,7 +127,10 @@ async def wallet_bridge(method, params_json):
             h = await asyncio.to_thread(send_tx, params[0])
             print(f"   tx  {h}", flush=True)
             return json.dumps({"result": h})
-        except Exception as e:  # surfaced to the app as a wallet error
+        except Exception as e:
+            # The app turns any wallet error into "An unknown RPC error
+            # occurred", so the only place the reason survives is here.
+            print(f"   tx  FAILED: {str(e)[:400]}", flush=True)
             return json.dumps({"error": {"code": -32000, "message": str(e)}})
     res = await asyncio.to_thread(rpc, method, params)
     return json.dumps(res)
@@ -236,8 +261,13 @@ async def act(page, scope, button, timeout=180, settled=None, success="Done"):
             break
         await page.wait_for_timeout(250)
     else:
-        raise SystemExit(f"   FAIL: {button}: the button stayed disabled. Card said: "
-                         f"{(await scope.inner_text()).replace(chr(10), ' | ')[:300]}")
+        # `inner_text` never shows what is in the input, which is usually the
+        # reason a submit button will not enable, so ask the input itself.
+        field = scope.locator("input[inputmode=decimal]").first
+        typed = await field.input_value() if await field.count() else "(no field)"
+        await page.screenshot(path=os.path.join(OUT, "fail-disabled.png"), full_page=True)
+        raise SystemExit(f"   FAIL: {button}: the button stayed disabled with {typed!r} in the field. "
+                         f"Card said: {(await scope.inner_text()).replace(chr(10), ' | ')[:300]}")
     await btn.click()
     # Each action renders its verdict in the paragraph right under its own
     # button, and only once it has finished. So the verdict is that paragraph:
@@ -277,10 +307,17 @@ async def main():
     step(f"0. funding the UI wallet {ACCOUNT}")
     bal = int(subprocess.check_output(["cast", "balance", ACCOUNT, "--rpc-url", RPC], text=True).split()[0])
     if bal < 5 * 10**14:
-        # Never let the key reach an exception message or a log line.
-        r = subprocess.run(["cast", "send", ACCOUNT, "--value", str(10**15), "--private-key", admin_key(),
-                            "--rpc-url", RPC], capture_output=True, text=True)
-        if r.returncode != 0:
+        # Never let the key reach an exception message or a log line. The public
+        # RPC is load balanced, so a node that is a block behind hands out a
+        # nonce the next one refuses: retry rather than fail the run on it.
+        for attempt in range(6):
+            r = subprocess.run(["cast", "send", ACCOUNT, "--value", str(10**15), "--private-key", admin_key(),
+                                "--rpc-url", RPC], capture_output=True, text=True)
+            if r.returncode == 0:
+                break
+            if attempt < 5 and ("nonce too low" in r.stderr or "already known" in r.stderr):
+                time.sleep(3)
+                continue
             raise SystemExit(f"   FAIL: funding the UI wallet: {r.stderr.strip()[-200:]}")
     ok(True, "gas funded (0.001 OKB)")
 
@@ -353,7 +390,14 @@ async def main():
 
         step("5. the agent panel reports, and asks nothing of the user")
         panel = card(page, "Your position")
-        txt = await panel.inner_text()
+        # The page refreshes on its own timer, so the card can still be showing
+        # the empty state for a tick after the deposit has landed on chain.
+        txt = ""
+        for _ in range(20):
+            txt = await panel.inner_text()
+            if "Agents running" in txt:
+                break
+            await page.wait_for_timeout(3000)
         ok("Agents running" in txt, "the position says the agents are running")
         ok("Rebalance" not in txt and "Compound" not in txt,
            "no agent button: the user has nothing to press, which is the product")
@@ -396,9 +440,14 @@ async def main():
         await page.wait_for_timeout(1500)
         # Max, not the amount that was supplied: a round trip through the pool's
         # shares comes back a rounding short of it, and the form is right to
-        # refuse an amount the pool cannot pay.
-        await supply.get_by_role("button", name=re.compile("Max")).first.click()
-        await page.wait_for_timeout(1200)
+        # refuse an amount the pool cannot pay. Clicked until it takes: the page
+        # reads its own supply back off a load balanced RPC.
+        field = supply.locator("input[inputmode=decimal]").first
+        for _ in range(15):
+            await supply.get_by_role("button", name=re.compile("Max")).first.click()
+            await page.wait_for_timeout(2000)
+            if (await field.input_value()).strip() not in ("", "0", "0.0"):
+                break
         await act(page, supply, "Withdraw USDG", timeout=300)
         left = int(call(DEP["contracts"]["pool"], "balanceOf(address)(uint256)", ACCOUNT).split()[0])
         # Interest accrues between reading Max and the block landing, so a
