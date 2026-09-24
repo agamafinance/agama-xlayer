@@ -265,22 +265,19 @@ export function useAmplifyPosition(address: Address | undefined, tick: number) {
 
 // ---- wallet -----------------------------------------------------------------
 
-/// The wallet to talk to.
+/// The OKX wallet, or nothing.
 ///
-/// `window.ethereum` is whichever extension won the injection race, and with
-/// several installed that is a coin toss: on a machine with Rabby, Rabby
-/// answers and offers its own chooser, which has no OKX in it. The OKX
-/// extension injects `window.okxwallet` under its own name, and so does the
-/// OKX app's in-app browser, so ask for it by name first. EIP-6963 covers the
-/// wallets that announce themselves properly, and `window.ethereum` is the
-/// last resort.
-function injectedProvider(): any {
-  if (typeof window === 'undefined') return undefined;
-  const w = window as unknown as { okxwallet?: any; ethereum?: any };
-  if (w.okxwallet) return w.okxwallet;
-  const announced = discovered.find((p) => p.info.rdns === 'com.okex.wallet');
-  return announced?.provider ?? discovered[0]?.provider ?? w.ethereum;
-}
+/// This is an OKX chain and the deposit path starts with a withdrawal from the
+/// OKX app, so OKX Wallet is the wallet this page talks to. Falling back to
+/// `window.ethereum` would connect whichever extension won the injection race:
+/// on a machine with Rabby installed, Rabby answered and offered its own
+/// chooser, which has no OKX in it.
+///
+/// It announces itself three ways depending on where it runs, so all three are
+/// checked: its own `window.okxwallet` (extension and the app's in-app
+/// browser), an EIP-6963 announcement, and the flag it sets on a provider when
+/// it is the only one installed.
+const OKX_RDNS = ['com.okex.wallet', 'com.okx.wallet'];
 
 /// EIP-6963 announcements, collected as they arrive.
 const discovered: { info: { rdns: string; name: string }; provider: any }[] = [];
@@ -296,6 +293,57 @@ if (typeof window !== 'undefined') {
 /// straight back. Without it `eth_accounts` would answer with the account the
 /// wallet still has approved and the disconnect would last until the click.
 const LEFT = 'agama.xlayer.disconnected';
+
+function isOkx(p: any): boolean {
+  return !!p && (p.isOkxWallet === true || p.isOKExWallet === true);
+}
+
+function okxProvider(): any {
+  if (typeof window === 'undefined') return undefined;
+  const w = window as unknown as { okxwallet?: any; ethereum?: any };
+  if (w.okxwallet) return w.okxwallet;
+
+  const announced = discovered.find(
+    (p) => OKX_RDNS.includes(p.info.rdns) || /okx/i.test(p.info.name ?? ''),
+  );
+  if (announced) return announced.provider;
+
+  // Some extensions expose every injected provider here when they share the
+  // page; OKX may be one of them without owning `window.ethereum`.
+  const many: any[] = (w.ethereum as any)?.providers ?? [];
+  const inList = many.find(isOkx);
+  if (inList) return inList;
+
+  return isOkx(w.ethereum) ? w.ethereum : undefined;
+}
+
+/// Kept for the call sites that only ever want the one wallet.
+const injectedProvider = okxProvider;
+
+export const OKX_DOWNLOAD = 'https://web3.okx.com/download';
+
+/// Whether OKX Wallet is present. Polled briefly: an extension can announce
+/// itself after the first render, and EIP-6963 answers are asynchronous.
+export function useOkxWallet(): boolean {
+  const [found, setFound] = useState(false);
+  useEffect(() => {
+    let tries = 0;
+    const check = () => {
+      if (okxProvider()) {
+        setFound(true);
+        return true;
+      }
+      return false;
+    };
+    if (check()) return;
+    window.dispatchEvent(new Event('eip6963:requestProvider'));
+    const id = setInterval(() => {
+      if (check() || ++tries > 20) clearInterval(id);
+    }, 250);
+    return () => clearInterval(id);
+  }, []);
+  return found;
+}
 
 export function useWallet() {
   const [address, setAddress] = useState<Address | undefined>();
