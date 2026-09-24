@@ -292,8 +292,27 @@ if (typeof window !== 'undefined') {
   window.dispatchEvent(new Event('eip6963:requestProvider'));
 }
 
+/// Set once the user has disconnected, so the next page load does not put them
+/// straight back. Without it `eth_accounts` would answer with the account the
+/// wallet still has approved and the disconnect would last until the click.
+const LEFT = 'agama.xlayer.disconnected';
+
 export function useWallet() {
   const [address, setAddress] = useState<Address | undefined>();
+
+  const disconnect = useCallback(() => {
+    setAddress(undefined);
+    try {
+      window.sessionStorage.setItem(LEFT, '1');
+    } catch {
+      /* private mode: the disconnect lasts the session anyway */
+    }
+    // Not every wallet implements this, and none of them have to. Where it
+    // exists it makes the wallet forget the site too, which is what the user
+    // meant; where it does not, clearing our side is the whole of it.
+    injectedProvider()?.request?.({ method: 'wallet_revokePermissions', params: [{ eth_accounts: {} }] })
+      .catch(() => {});
+  }, []);
 
   const connect = useCallback(async () => {
     const eth = injectedProvider();
@@ -318,18 +337,28 @@ export function useWallet() {
         });
       }
     }
+    try {
+      window.sessionStorage.removeItem(LEFT);
+    } catch {
+      /* ignore */
+    }
     setAddress(acc as Address);
   }, []);
 
   useEffect(() => {
     const eth = injectedProvider();
     if (!eth) return;
+    try {
+      if (window.sessionStorage.getItem(LEFT)) return;
+    } catch {
+      /* ignore */
+    }
     eth.request({ method: 'eth_accounts' }).then((a: string[]) => {
       if (a[0]) setAddress(a[0] as Address);
     }).catch(() => {});
   }, []);
 
-  return { address, connect };
+  return { address, connect, disconnect };
 }
 
 /// Send one transaction and wait for it, the way every other network page here

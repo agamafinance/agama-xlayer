@@ -17,10 +17,10 @@ const pillProps = {
 const shorten = (a: string) => `${a.slice(0, 4)}…${a.slice(-4)}`;
 
 export function XLayerConnectPill() {
-  const { address, connect } = useXLayerWallet();
+  const { address, connect, disconnect } = useXLayerWallet();
 
   return (
-    <AnimatedButton {...pillProps} onClick={connect}>
+    <AnimatedButton {...pillProps} onClick={address ? disconnect : connect}>
       <span className="relative inline-block">
         <span className={address ? 'invisible whitespace-nowrap' : 'whitespace-nowrap'}>Connect Wallet</span>
         {address && (
