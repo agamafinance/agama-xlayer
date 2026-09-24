@@ -410,10 +410,12 @@ export default function XLayerEarnPage() {
                   >
                     Close, send the stock back
                   </button>
-                  {status && !busy && pending === 'close' && (
-                    <p className="mt-2 text-[12px] text-fg-muted">{status}</p>
-                  )}
                 </>
+              )}
+              {/* Outside the branch on purpose: closing empties this card, and
+                  a confirmation that unmounts with it confirms nothing. */}
+              {status && !busy && pending === 'close' && (
+                <p className="mt-3 text-[12px] text-fg-muted">{status}</p>
               )}
             </div>
           </div>

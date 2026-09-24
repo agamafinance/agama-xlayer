@@ -196,10 +196,13 @@ export default function XLayerAmplifyPage() {
                 >
                   Close to USDG
                 </button>
-                {status && !busy && pending === 'close' && (
-                  <p className="mt-2 text-[12px] text-fg-muted">{status}</p>
-                )}
               </>
+            )}
+            {/* Outside the branch on purpose: a successful close empties this
+                card, and a confirmation that unmounts with the thing it is
+                confirming is no confirmation at all. */}
+            {status && !busy && pending === 'close' && (
+              <p className="mt-3 text-[12px] text-fg-muted">{status}</p>
             )}
           </div>
         </div>

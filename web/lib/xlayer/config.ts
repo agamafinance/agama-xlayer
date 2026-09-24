@@ -26,6 +26,10 @@ export const xLayerTestnet = defineChain({
   blockExplorers: {
     default: { name: 'OKX Explorer', url: 'https://www.okx.com/web3/explorer/xlayer-test' },
   },
+  // Deployed at the canonical address on X Layer, checked on testnet. Without
+  // it every refresh is about thirty separate calls to a public RPC that
+  // rate limits, which shows up as prices that flicker in and out.
+  contracts: { multicall3: { address: '0xcA11bde05977b3631167028862bE2a173976CA11' } },
   testnet: true,
 });
 

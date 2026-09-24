@@ -12,7 +12,14 @@ import {
   vaultShareAdapterAbi, xStockAdapterAbi,
 } from './generated/abis';
 
-export const pub = createPublicClient({ chain: xLayerTestnet, transport: http() });
+export const pub = createPublicClient({
+  chain: xLayerTestnet,
+  transport: http(),
+  // Every market read goes out as part of one Multicall3 call instead of on
+  // its own. Four markets is about thirty reads a refresh, which a public RPC
+  // answers unevenly.
+  batch: { multicall: { wait: 16 } },
+});
 
 const erc20Abi = [
   { type: 'function', name: 'balanceOf', stateMutability: 'view', inputs: [{ type: 'address' }], outputs: [{ type: 'uint256' }] },

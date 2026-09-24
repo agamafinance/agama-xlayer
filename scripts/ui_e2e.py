@@ -208,31 +208,49 @@ def card(page, heading):
     return page.locator("div.rounded-2xl").filter(has=page.get_by_role("heading", name=heading)).first
 
 
-async def act(page, scope, button, timeout=180):
+async def act(page, scope, button, timeout=180, settled=None):
+    """Click an action button and wait for its verdict.
+
+    `settled` is for the actions that empty the card they live in: a close
+    takes its own button away, so the verdict moves to the card level and the
+    chain is the thing worth waiting on.
+    """
     btn = scope.get_by_role("button", name=re.compile(button)).first
     await btn.wait_for(state="visible", timeout=30000)
-    for _ in range(120):
+    for _ in range(80):  # 20s: the form needs its reads before it will let go
         if await btn.is_enabled():
             break
         await page.wait_for_timeout(250)
+    else:
+        raise SystemExit(f"   FAIL: {button}: the button stayed disabled. Card said: "
+                         f"{(await scope.inner_text()).replace(chr(10), ' | ')[:300]}")
     await btn.click()
-    # The card only renders a status line once the action has finished, so the
-    # first line to appear IS the verdict: "Done", or whatever went wrong.
-    # Listing the words that mean failure would miss the ones we have not seen
-    # yet, which is how an ABI mismatch once sat in a card for five minutes
-    # while the test waited for a word it did not contain.
-    t0 = time.time()
-    before = await scope.inner_text()
-    while time.time() - t0 < timeout:
-        txt = await scope.inner_text()
-        if re.search(r"\bDone\b", txt):
-            print(f"   ok  {button}", flush=True)
+    # Each action renders its verdict in the paragraph right under its own
+    # button, and only once it has finished. So the verdict is that paragraph:
+    # "Done", or whatever went wrong. Reading the whole card instead means
+    # either missing an error word nobody predicted, or calling a refreshed
+    # balance an error.
+    if settled is not None:
+        t0 = time.time()
+        while time.time() - t0 < timeout:
+            if await asyncio.to_thread(settled):
+                print(f"   ok  {button}", flush=True)
+                await page.wait_for_timeout(2000)
+                return
             await page.wait_for_timeout(2000)
-            return
-        extra = txt.replace(before, "").strip()
-        if extra and not extra.startswith(("Approving", "Opening", "Closing", "Unwinding",
-                                           "Buying", "Supplying", "Withdrawing", "Working")):
-            raise SystemExit(f"   FAIL: {button}: {extra.replace(chr(10), ' | ')[:300]}")
+        raise SystemExit(f"   FAIL: {button}: the chain never settled after {timeout}s")
+
+    verdict = btn.locator("xpath=following-sibling::p[1]")
+    t0 = time.time()
+    while time.time() - t0 < timeout:
+        if await verdict.count() > 0:
+            said = (await verdict.first.inner_text()).strip()
+            if said == "Done":
+                print(f"   ok  {button}", flush=True)
+                await page.wait_for_timeout(2000)
+                return
+            if said:
+                raise SystemExit(f"   FAIL: {button}: {said[:300]}")
         await page.wait_for_timeout(500)
     raise SystemExit(f"   FAIL: {button}: nothing after {timeout}s")
 
@@ -325,31 +343,47 @@ async def main():
         ok(amp["exposure"] > 300 * 10**6,
            f"loop open: {amp['exposure'] / 1e6:.2f} USDG of exposure at {amp['leverageBps'] / 10000:.2f}x")
         await shot(page, "f03-amplify")
-        await act(page, card(page, "Your loop"), "Close to USDG", timeout=300)
-        amp = wait_chain(amplify_position, lambda a: a["exposure"] == 0)
+        await act(page, card(page, "Your loop"), "Close to USDG", timeout=300,
+                  settled=lambda: amplify_position()["exposure"] == 0)
+        amp = amplify_position()
         ok(amp["exposure"] == 0, "loop closed, equity back in USDG")
 
         step("7. Lend: supply 100 USDG, then withdraw it")
         await page.get_by_role("link", name="Lend", exact=True).click()
         await page.wait_for_timeout(6000)
-        supply = page.locator("div.rounded-2xl").filter(has=page.get_by_role("button", name="Supply USDG")).first
+        # Anchored on the supply/withdraw pill, which is in the card whichever
+        # tab is showing; the action button is renamed by the tab itself.
+        supply = page.locator("div.rounded-2xl").filter(
+            has=page.get_by_role("button", name="supply", exact=True)).first
         await fill_amount(supply, "100")
         await page.wait_for_timeout(1200)
         await act(page, supply, "Supply USDG", timeout=300)
         shares = int(call(DEP["contracts"]["pool"], "balanceOf(address)(uint256)", ACCOUNT).split()[0])
-        ok(shares > 0, f"{shares / 1e6:.2f} pool shares held")
-        await supply.get_by_role("button", name="withdraw").click()
+        # The pool's shares carry a decimals offset, so report what they are
+        # worth rather than a raw count nobody can read.
+        worth = int(call(DEP["contracts"]["pool"], "convertToAssets(uint256)(uint256)", str(shares)).split()[0])
+        ok(shares > 0, f"supplied, shares worth {worth / 1e6:.2f} USDG")
+        # exact, or it also matches the action button "Withdraw USDG".
+        await supply.get_by_role("button", name="withdraw", exact=True).first.click()
         await page.wait_for_timeout(1500)
-        await fill_amount(supply, "100")
+        # Max, not the amount that was supplied: a round trip through the pool's
+        # shares comes back a rounding short of it, and the form is right to
+        # refuse an amount the pool cannot pay.
+        await supply.get_by_role("button", name=re.compile("Max")).first.click()
         await page.wait_for_timeout(1200)
         await act(page, supply, "Withdraw USDG", timeout=300)
-        ok(True, "withdrawn")
+        left = int(call(DEP["contracts"]["pool"], "balanceOf(address)(uint256)", ACCOUNT).split()[0])
+        # Interest accrues between reading Max and the block landing, so a
+        # rounding of shares survives. Anything under a cent is dust, not a bug.
+        dust = int(call(DEP["contracts"]["pool"], "convertToAssets(uint256)(uint256)", str(left)).split()[0])
+        ok(dust < 10_000, f"withdrawn, {dust} base units of dust left")
 
         step("8. Earn: close, the stock comes back as the token OKX accepts")
         await page.get_by_role("link", name="Earn", exact=True).click()
         await page.wait_for_timeout(6000)
-        await act(page, card(page, "Your position"), "Close, send the stock back", timeout=300)
-        pos = wait_chain(earn_position, lambda p: p["collateral"] == 0)
+        await act(page, card(page, "Your position"), "Close, send the stock back", timeout=300,
+                  settled=lambda: earn_position()["collateral"] == 0)
+        pos = earn_position()
         ok(pos["collateral"] == 0 and pos["debt"] == 0, "position closed, nothing left owed")
         await shot(page, "f04-closed")
 
