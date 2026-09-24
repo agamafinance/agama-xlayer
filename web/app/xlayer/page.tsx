@@ -34,11 +34,10 @@ export default function XLayerEarnPage() {
   const m: Market | undefined = markets[sel];
 
   const proto = useXLayerProtocol(address, tick);
-  const position = useXLayerPosition(address, m?.adapter, tick);
+  const position = useXLayerPosition(address, m?.adapter, m?.wrapper, tick);
 
   const [amount, setAmount] = useState('');
   const [ltv, setLtv] = useState(25);
-  const [useBase, setUseBase] = useState(true);
   const [buying, setBuying] = useState(false);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
@@ -46,9 +45,13 @@ export default function XLayerEarnPage() {
   // the button that was pressed and not in the card next to it.
   const [pending, setPending] = useState<'deposit' | 'close'>('deposit');
 
-  const token = useBase && m?.base ? m.base : m?.wrapper;
-  const balance = useBase && m?.base ? m?.baseBalance : m?.balance;
-  const symbol = m ? (useBase && m.base ? m.stock.wrapper.replace(/^w/, '') : m.stock.wrapper) : '';
+  // The app only ever speaks the base token: it is what an OKX withdrawal
+  // sends, what an OKX deposit accepts, and what closing hands back. The
+  // ERC-4626 wrapper the markets hold is wrapped and unwrapped on the way
+  // through, and never named.
+  const token = m?.base;
+  const balance = m?.baseBalance;
+  const symbol = m?.stock.base ?? '';
 
   const amt = useMemo(() => {
     try {
@@ -125,8 +128,8 @@ export default function XLayerEarnPage() {
       setStatus('Approving…');
       await ensureAllowance(address, token, ADDR.earnRouter, amt);
       setStatus('Opening the position…');
-      const fn = useBase && m.base ? 'openWithBase' : 'open';
-      await send(address, ADDR.earnRouter, earnRouterAbi, fn, [m.adapter, amt, BigInt(Math.round(ltv * 100))]);
+      await send(address, ADDR.earnRouter, earnRouterAbi, 'openWithBase',
+        [m.adapter, amt, BigInt(Math.round(ltv * 100))]);
       setStatus('Done');
       setAmount('');
       bump();
@@ -161,7 +164,7 @@ export default function XLayerEarnPage() {
   const has = !!position?.hasPosition;
   const { grown, reset: resetBaseline } = useDepositBaseline(
     `agama.xlayer.deposited.${address ?? 'none'}.${m?.adapter ?? 'none'}`,
-    position?.collateral,
+    position?.collateralBase,
   );
   const lastAction = useLastAgentAction(has ? position?.account : undefined, tick);
 
@@ -195,7 +198,7 @@ export default function XLayerEarnPage() {
           <div className="grid gap-5 lg:grid-cols-[1fr_1fr] items-start">
             <div className="rounded-2xl bg-[#fdfaf1] p-6 shadow-[0_1px_3px_rgba(20,50,35,0.06),0_10px_30px_rgba(20,50,35,0.09)]">
               <div className="flex items-center justify-between">
-                <h2 className="text-[17px] font-semibold text-fg">Deposit {m?.stock.wrapper ?? ''}</h2>
+                <h2 className="text-[17px] font-semibold text-fg">Deposit {m?.stock.base ?? ''}</h2>
                 {m && (
                   <span className={m.marketOpen ? 'rounded-full bg-[#254839]/[0.06] px-3 py-1 text-[12px] text-fg' : 'rounded-full bg-[#b4571f]/10 px-3 py-1 text-[12px] text-[#b4571f]'}>
                     {m.marketOpen ? 'Market open' : 'Market closed'}
@@ -219,25 +222,10 @@ export default function XLayerEarnPage() {
                 ))}
               </div>
 
-              <div className={buying ? 'hidden' : 'mt-3 flex items-center gap-1 rounded-full bg-[#254839]/[0.06] p-1 w-fit'}>
-                {([[true, 'From OKX'], [false, 'Wrapped']] as const).map(([v, label]) => (
-                  <button
-                    key={label}
-                    onClick={() => { setUseBase(v); setAmount(''); }}
-                    className={
-                      v === useBase
-                        ? 'rounded-full bg-[#254839] px-4 py-1.5 text-[13px] font-medium text-[#fdf8ed]'
-                        : 'rounded-full px-4 py-1.5 text-[13px] text-fg-muted hover:text-fg'
-                    }
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
               <p className="mt-2 text-[12px] text-fg-muted">
                 {buying
                   ? 'Do not hold the stock yet? One transaction buys it and opens the position with it.'
-                  : `A stock withdrawn from the OKX app lands as ${symbol || 'the base token'}, and that is what this takes. Closing hands the same token back.`}
+                  : `Withdraw ${symbol || 'your stock'} from the OKX app to X Layer and deposit it here. Closing hands the same token back, ready for an OKX deposit.`}
               </p>
 
               <div className="mt-4 rounded-2xl border border-[#254839]/12 bg-white/60 p-4">
@@ -266,7 +254,7 @@ export default function XLayerEarnPage() {
                 </div>
                 <div className="mt-1 text-[12px] text-fg-muted">
                   {buying && amt > 0n && m?.wrapperPrice
-                    ? `about ${qty((amt * 10n ** 18n) / m.wrapperPrice)} ${m.stock.wrapper} at ${price(m?.price)}`
+                    ? `about ${qty((amt * 10n ** 18n) / m.wrapperPrice)} ${m.stock.base} at ${price(m?.price)}`
                     : `${price(m?.price)} per share`}
                 </div>
               </div>
@@ -365,8 +353,8 @@ export default function XLayerEarnPage() {
                 <>
                   <div className="mt-4 flex flex-wrap gap-8">
                     <Stat
-                      label={`Your ${m?.stock.wrapper}`}
-                      value={qty(position?.collateral)}
+                      label={`Your ${m?.stock.base}`}
+                      value={qty(position?.collateralBase)}
                       sub={grown !== undefined ? `+${qty(grown)} added by the agents` : usd(position?.collateralValue)}
                     />
                     <Stat
@@ -399,7 +387,7 @@ export default function XLayerEarnPage() {
                           ? `Last action: debt ${(lastAction.debtDelta ?? 0n) >= 0n ? '+' : '-'}${usd(
                               (lastAction.debtDelta ?? 0n) < 0n ? -(lastAction.debtDelta ?? 0n) : lastAction.debtDelta ?? 0n,
                             ).replace('$', '')} USDG, ${ago(lastAction.at)}`
-                          : `Last action: ${qty(lastAction.stockAdded)} ${m?.stock.wrapper} bought with the yield, ${ago(lastAction.at)}`
+                          : `Last action: ${qty(lastAction.stockAdded)} ${m?.stock.base} bought with the yield, ${ago(lastAction.at)}`
                         : 'No action in the last 100 blocks. The position is on target.'}
                     </p>
                   </div>
@@ -408,7 +396,7 @@ export default function XLayerEarnPage() {
                     disabled={busy}
                     className="mt-4 w-full rounded-full border border-[#254839]/25 px-5 py-3.5 text-[15px] font-medium text-fg transition-colors hover:bg-[#254839]/[0.06] disabled:opacity-45"
                   >
-                    Close, send the stock back
+                    Close, send the stock back to OKX
                   </button>
                 </>
               )}
@@ -441,7 +429,7 @@ function MarketCards({
           }
         >
           <div className="flex items-baseline justify-between">
-            <span className="text-[15px] font-medium">{m.stock.wrapper}</span>
+            <span className="text-[15px] font-medium">{m.stock.base}</span>
             <span className="text-[11px] opacity-70">{m.stock.name}</span>
           </div>
           <div className="mt-1 flex items-baseline gap-2">

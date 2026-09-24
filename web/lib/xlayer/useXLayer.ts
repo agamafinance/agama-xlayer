@@ -26,6 +26,7 @@ const erc20Abi = [
   { type: 'function', name: 'allowance', stateMutability: 'view', inputs: [{ type: 'address' }, { type: 'address' }], outputs: [{ type: 'uint256' }] },
   { type: 'function', name: 'approve', stateMutability: 'nonpayable', inputs: [{ type: 'address' }, { type: 'uint256' }], outputs: [{ type: 'bool' }] },
   { type: 'function', name: 'asset', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] },
+  { type: 'function', name: 'convertToAssets', stateMutability: 'view', inputs: [{ type: 'uint256' }], outputs: [{ type: 'uint256' }] },
   { type: 'function', name: 'faucet', stateMutability: 'nonpayable', inputs: [{ type: 'address' }, { type: 'uint256' }], outputs: [] },
 ] as const;
 
@@ -64,6 +65,10 @@ export interface Position extends RouterPosition {
   /// Not on chain: the router answers for every wallet, open or not.
   hasPosition: boolean;
   targetLtvBps: bigint;
+  /// The collateral counted in the base token, which is the only one the app
+  /// names: the pool holds ERC-4626 shares, the user deposited and will get
+  /// back the thing OKX sends.
+  collateralBase: bigint;
 }
 
 export interface Protocol {
@@ -151,29 +156,42 @@ export function useXLayerMarkets(address?: Address) {
   return { markets, refresh };
 }
 
-export function useXLayerPosition(address: Address | undefined, adapter: Address | undefined, tick: number) {
+export function useXLayerPosition(
+  address: Address | undefined,
+  adapter: Address | undefined,
+  wrapper: Address | undefined,
+  tick: number,
+) {
   const [position, setPosition] = useState<Position | null>(null);
 
   useEffect(() => {
-    if (!address || !adapter) { setPosition(null); return; }
+    if (!address || !adapter || !wrapper) { setPosition(null); return; }
     let alive = true;
     (async () => {
       try {
         const p = (await pub.readContract({
           address: ADDR.earnRouter, abi: earnRouterAbi, functionName: 'position', args: [address, adapter],
         })) as RouterPosition;
-        const target = p.account === ZERO ? 0n : ((await pub.readContract({
-          address: p.account, abi: accountAbi, functionName: 'targetLtvBps', args: [adapter],
-        }).catch(() => 0n)) as bigint);
+        const [target, base] = await Promise.all([
+          p.account === ZERO ? Promise.resolve(0n) : pub.readContract({
+            address: p.account, abi: accountAbi, functionName: 'targetLtvBps', args: [adapter],
+          }).catch(() => 0n) as Promise<bigint>,
+          p.collateral === 0n ? Promise.resolve(0n) : pub.readContract({
+            address: wrapper, abi: erc20Abi, functionName: 'convertToAssets', args: [p.collateral],
+          }).catch(() => p.collateral) as Promise<bigint>,
+        ]);
         if (alive) {
-          setPosition({ ...p, targetLtvBps: target, hasPosition: p.collateral > 0n || p.debt > 0n });
+          setPosition({
+            ...p, targetLtvBps: target, collateralBase: base,
+            hasPosition: p.collateral > 0n || p.debt > 0n,
+          });
         }
       } catch (e) {
         console.error('xlayer position', e);
       }
     })();
     return () => { alive = false; };
-  }, [address, adapter, tick]);
+  }, [address, adapter, wrapper, tick]);
 
   return position;
 }

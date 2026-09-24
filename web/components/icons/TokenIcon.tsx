@@ -47,6 +47,10 @@ const TOKENS: Record<string, TokenInfo> = {
   wNVDAx: { bg: '#ece6db', fg: '#254839', symbol: 'N' },
   wSPYx: { bg: '#ece6db', fg: '#254839', symbol: 'S' },
   wAAPLx: { bg: '#ece6db', fg: '#254839', symbol: 'A' },
+  TSLAx: { bg: '#ece6db', fg: '#254839', symbol: 'T' },
+  NVDAx: { bg: '#ece6db', fg: '#254839', symbol: 'N' },
+  SPYx: { bg: '#ece6db', fg: '#254839', symbol: 'S' },
+  AAPLx: { bg: '#ece6db', fg: '#254839', symbol: 'A' },
 };
 
 const FALLBACK = { bg: '#3B4256', fg: '#FFFFFF', symbol: '?' };

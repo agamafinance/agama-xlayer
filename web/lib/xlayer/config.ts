@@ -57,16 +57,20 @@ export type StockKey = 'TSLA' | 'NVDA' | 'SPY' | 'AAPL';
 
 export interface Stock {
   key: StockKey;
+  /// The ERC-4626 wrapper the lending markets take. An implementation detail:
+  /// the app speaks the base token, which is what OKX sends and accepts.
   wrapper: 'wTSLAx' | 'wNVDAx' | 'wSPYx' | 'wAAPLx';
+  /// What a withdrawal from the OKX app delivers, and the only name shown.
+  base: 'TSLAx' | 'NVDAx' | 'SPYx' | 'AAPLx';
   name: string;
   ticker: `0x${string}`; // bytes32, right padded
 }
 
 export const STOCKS: Stock[] = [
-  { key: 'TSLA', wrapper: 'wTSLAx', name: 'Tesla', ticker: stringToHex('TSLA', { size: 32 }) },
-  { key: 'NVDA', wrapper: 'wNVDAx', name: 'NVIDIA', ticker: stringToHex('NVDA', { size: 32 }) },
-  { key: 'SPY', wrapper: 'wSPYx', name: 'S&P 500 ETF', ticker: stringToHex('SPY', { size: 32 }) },
-  { key: 'AAPL', wrapper: 'wAAPLx', name: 'Apple', ticker: stringToHex('AAPL', { size: 32 }) },
+  { key: 'TSLA', wrapper: 'wTSLAx', base: 'TSLAx', name: 'Tesla', ticker: stringToHex('TSLA', { size: 32 }) },
+  { key: 'NVDA', wrapper: 'wNVDAx', base: 'NVDAx', name: 'NVIDIA', ticker: stringToHex('NVDA', { size: 32 }) },
+  { key: 'SPY', wrapper: 'wSPYx', base: 'SPYx', name: 'S&P 500 ETF', ticker: stringToHex('SPY', { size: 32 }) },
+  { key: 'AAPL', wrapper: 'wAAPLx', base: 'AAPLx', name: 'Apple', ticker: stringToHex('AAPL', { size: 32 }) },
 ];
 
 /// Shown until the vault has two NAV snapshots to measure a realized APY from.

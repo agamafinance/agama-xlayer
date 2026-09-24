@@ -287,7 +287,7 @@ async def main():
         await page.goto(BASE, wait_until="domcontentloaded")
         await page.wait_for_timeout(7000)
         body = await page.locator("body").inner_text()
-        ok("Deposit your stock" in body and "wTSLAx" in body and "$" in body,
+        ok("Deposit your stock" in body and "TSLAx" in body and "$" in body,
            "Earn page rendered in the Agama design with the four markets priced")
         ok(all(t in body for t in ("Portfolio", "Earn", "Amplify", "Faucet")), "the four tabs are there")
         await shot(page, "f01-earn")
@@ -322,15 +322,15 @@ async def main():
         step("4. Earn: deposit the token an OKX withdrawal delivers, at 25% LTV")
         await page.get_by_role("link", name="Earn", exact=True).click()
         await page.wait_for_timeout(6000)
+        # There is no token to choose any more: the app takes the one an OKX
+        # withdrawal sends and nothing else.
         deposit = card(page, re.compile("^Deposit "))
-        await deposit.get_by_role("button", name="From OKX").click()
-        await page.wait_for_timeout(1500)
         await fill_amount(deposit, "2")
         await page.wait_for_timeout(1500)
         await act(page, deposit, "Deposit and borrow", timeout=300)
         pos = wait_chain(earn_position, lambda p: p["collateral"] > 0)
         ok(pos["collateral"] >= 2 * 10**18 and pos["debt"] > 0,
-           f"position open: {pos['collateral'] / 1e18:.4f} wTSLAx, {pos['debt'] / 1e6:.2f} USDG borrowed")
+           f"position open: {pos['collateral'] / 1e18:.4f} TSLAx, {pos['debt'] / 1e6:.2f} USDG borrowed")
         await shot(page, "f02-position")
 
         step("5. the agent panel reports, and asks nothing of the user")
@@ -392,7 +392,8 @@ async def main():
         await page.get_by_role("link", name="Portfolio", exact=True).click()
         await page.wait_for_timeout(7000)
         body = await page.locator("body").inner_text()
-        ok("Net worth" in body and "wTSLAx" in body and "Supplied to Arrow" not in body,
+        ok("Net worth" in body.replace("NET WORTH", "Net worth") and "TSLAx" in body
+           and "Supplied to Arrow" not in body,
            "Portfolio shows the stock position and the wallet, and the lending row is gone with the withdrawal")
         await shot(page, "f05-portfolio")
 

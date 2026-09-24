@@ -50,12 +50,19 @@ export default function XLayerPortfolioPage() {
               args: [address, ADAPTERS[st.key]],
             }) as Promise<RouterPosition>,
             pub.readContract({
-              address: TOKENS[st.wrapper], abi: erc20Abi, functionName: 'balanceOf', args: [address],
-            }) as Promise<bigint>,
+              address: TOKENS[st.wrapper], abi: erc20Abi, functionName: 'asset',
+            }).then((base) => pub.readContract({
+              address: base as Address, abi: erc20Abi, functionName: 'balanceOf', args: [address],
+            })) as Promise<bigint>,
           ]);
+          // Counted in the base token, the one OKX sends and the app names.
+          const deposited = p.collateral === 0n ? 0n : ((await pub.readContract({
+            address: TOKENS[st.wrapper], abi: erc20Abi, functionName: 'convertToAssets',
+            args: [p.collateral],
+          }).catch(() => p.collateral)) as bigint);
           return {
-            key: st.key, symbol: st.wrapper, name: st.name,
-            amount: p.collateral + held, value: p.collateralValue, debt: p.debt,
+            key: st.key, symbol: st.base, name: st.name,
+            amount: deposited + held, value: p.collateralValue, debt: p.debt,
             buffer: p.freeSharesValue, hf: p.healthFactorRay,
           };
         }));
