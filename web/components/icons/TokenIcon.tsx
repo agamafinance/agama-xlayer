@@ -42,15 +42,17 @@ const TOKENS: Record<string, TokenInfo> = {
   // X Layer: USDG and the Backed xStock wrappers. Cream discs with a dark
   // green letter, the same inversion the vault share tokens use, so a stock
   // reads as collateral rather than as another stablecoin.
-  USDG: { bg: '#254839', fg: '#fdf8ed', symbol: 'G' },
-  wTSLAx: { bg: '#ece6db', fg: '#254839', symbol: 'T' },
-  wNVDAx: { bg: '#ece6db', fg: '#254839', symbol: 'N' },
-  wSPYx: { bg: '#ece6db', fg: '#254839', symbol: 'S' },
-  wAAPLx: { bg: '#ece6db', fg: '#254839', symbol: 'A' },
-  TSLAx: { bg: '#ece6db', fg: '#254839', symbol: 'T' },
-  NVDAx: { bg: '#ece6db', fg: '#254839', symbol: 'N' },
-  SPYx: { bg: '#ece6db', fg: '#254839', symbol: 'S' },
-  AAPLx: { bg: '#ece6db', fg: '#254839', symbol: 'A' },
+  USDG: { bg: '#314012', fg: '#C7E36C', symbol: 'G', logo: '/usdg.svg' },
+  // Backed's own xStock marks. Two of the four are only published as PNG,
+  // which is why the set is mixed.
+  TSLAx: { bg: '#E82127', fg: '#fff', symbol: 'T', logo: '/stocks/tslax.svg' },
+  NVDAx: { bg: '#76B900', fg: '#fff', symbol: 'N', logo: '/stocks/nvdax.png' },
+  SPYx: { bg: '#1B1BFF', fg: '#fff', symbol: 'S', logo: '/stocks/spyx.png' },
+  AAPLx: { bg: '#000000', fg: '#fff', symbol: 'A', logo: '/stocks/aaplx.svg' },
+  wTSLAx: { bg: '#E82127', fg: '#fff', symbol: 'T', logo: '/stocks/tslax.svg' },
+  wNVDAx: { bg: '#76B900', fg: '#fff', symbol: 'N', logo: '/stocks/nvdax.png' },
+  wSPYx: { bg: '#1B1BFF', fg: '#fff', symbol: 'S', logo: '/stocks/spyx.png' },
+  wAAPLx: { bg: '#000000', fg: '#fff', symbol: 'A', logo: '/stocks/aaplx.svg' },
 };
 
 const FALLBACK = { bg: '#3B4256', fg: '#FFFFFF', symbol: '?' };
@@ -71,7 +73,10 @@ export function TokenIcon({
   if (info.logo) {
     return (
       <img
-        src={info.logo}
+        // From this deployment's own origin: app.agama.finance proxies this app
+        // and serves its own public/ on that path, so a logo only we have would
+        // 404 there.
+        src={`${process.env.NEXT_PUBLIC_ASSET_PREFIX ?? ''}${info.logo}`}
         alt={symbol}
         width={size}
         height={size}

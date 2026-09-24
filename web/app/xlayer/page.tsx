@@ -10,6 +10,7 @@ import {
   type Market,
 } from '@/lib/xlayer/useXLayer';
 import { useXLayerWallet } from '@/lib/xlayer/WalletProvider';
+import { TokenIcon } from '@/components/icons/TokenIcon';
 import { ago, useDepositBaseline, useLastAgentAction } from '@/lib/xlayer/agents';
 
 /// The testnet stand-in DEX, priced at the Agama oracle and allowlisted on the zap.
@@ -391,8 +392,11 @@ function MarketCards({
               : 'rounded-2xl bg-[#fdfaf1] p-4 text-left text-fg transition-colors hover:bg-white'
           }
         >
-          <div className="flex items-baseline justify-between">
-            <span className="text-[15px] font-medium">{m.stock.base}</span>
+          <div className="flex items-center justify-between gap-2">
+            <span className="flex items-center gap-2">
+              <TokenIcon symbol={m.stock.base} size={22} />
+              <span className="text-[15px] font-medium">{m.stock.base}</span>
+            </span>
             <span className="text-[11px] opacity-70">{m.stock.name}</span>
           </div>
           <div className="mt-1 flex items-baseline gap-2">

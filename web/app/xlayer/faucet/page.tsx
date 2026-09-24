@@ -132,7 +132,7 @@ export default function XLayerFaucetPage() {
           <StepRow
             icon={<TokenIcon symbol="wTSLAx" size={40} />}
             title="xStocks"
-            blurb="10 of each: wTSLAx, wNVDAx, wSPYx, wAAPLx, plus the base token an OKX withdrawal would deliver. Eight transactions."
+            blurb="10 of each: TSLAx, NVDAx, SPYx and AAPLx, in the form an OKX withdrawal delivers and in the wrapped form the markets hold. Eight transactions."
           >
             <MintButton
               onClick={address ? mintStocks : connect}
