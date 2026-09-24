@@ -1,7 +1,6 @@
 'use client';
 
 import AnimatedButton from './AnimatedButton';
-import { OKX_DOWNLOAD, useOkxWallet } from '@/lib/xlayer/useXLayer';
 import { useXLayerWallet } from '@/lib/xlayer/WalletProvider';
 
 // Same pill as the other networks: dark-green AnimatedButton, address shortened
@@ -19,7 +18,6 @@ const shorten = (a: string) => `${a.slice(0, 4)}…${a.slice(-4)}`;
 
 export function XLayerConnectPill() {
   const { address, connect, disconnect } = useXLayerWallet();
-  const hasOkx = useOkxWallet();
 
   if (address) {
     return (
@@ -34,20 +32,12 @@ export function XLayerConnectPill() {
     );
   }
 
-  // One wallet is offered here and it is OKX: this is an OKX chain, and the
-  // deposit path starts with a withdrawal from the OKX app. Without it the
-  // button installs it rather than quietly connecting something else.
-  if (!hasOkx) {
-    return (
-      <AnimatedButton {...pillProps} as="a" href={OKX_DOWNLOAD} target="_blank" rel="noreferrer">
-        Get OKX Wallet
-      </AnimatedButton>
-    );
-  }
-
+  // The wallet it connects to is OKX and only OKX, which `connect` enforces:
+  // without it installed the click opens the download page. The button says
+  // what every other network's says.
   return (
     <AnimatedButton {...pillProps} onClick={connect}>
-      Connect OKX Wallet
+      Connect Wallet
     </AnimatedButton>
   );
 }

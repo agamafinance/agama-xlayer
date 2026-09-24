@@ -278,6 +278,7 @@ export function useAmplifyPosition(address: Address | undefined, tick: number) {
 /// browser), an EIP-6963 announcement, and the flag it sets on a provider when
 /// it is the only one installed.
 const OKX_RDNS = ['com.okex.wallet', 'com.okx.wallet'];
+const OKX_DOWNLOAD = 'https://web3.okx.com/download';
 
 /// EIP-6963 announcements, collected as they arrive.
 const discovered: { info: { rdns: string; name: string }; provider: any }[] = [];
@@ -319,31 +320,6 @@ function okxProvider(): any {
 
 /// Kept for the call sites that only ever want the one wallet.
 const injectedProvider = okxProvider;
-
-export const OKX_DOWNLOAD = 'https://web3.okx.com/download';
-
-/// Whether OKX Wallet is present. Polled briefly: an extension can announce
-/// itself after the first render, and EIP-6963 answers are asynchronous.
-export function useOkxWallet(): boolean {
-  const [found, setFound] = useState(false);
-  useEffect(() => {
-    let tries = 0;
-    const check = () => {
-      if (okxProvider()) {
-        setFound(true);
-        return true;
-      }
-      return false;
-    };
-    if (check()) return;
-    window.dispatchEvent(new Event('eip6963:requestProvider'));
-    const id = setInterval(() => {
-      if (check() || ++tries > 20) clearInterval(id);
-    }, 250);
-    return () => clearInterval(id);
-  }, []);
-  return found;
-}
 
 export function useWallet() {
   const [address, setAddress] = useState<Address | undefined>();
@@ -389,7 +365,7 @@ export function useWallet() {
   const connect = useCallback(async () => {
     const eth = injectedProvider();
     if (!eth) {
-      window.open('https://web3.okx.com/download', '_blank');
+      window.open(OKX_DOWNLOAD, '_blank');
       return;
     }
 
