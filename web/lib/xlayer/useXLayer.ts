@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { createPublicClient, createWalletClient, custom, http, type Address } from 'viem';
 
 import {
-  ADAPTERS, ADDR, CHAIN_ID_HEX, RAY, STOCKS, TARGET_VAULT_APY_RAY, TOKENS,
+  ADAPTERS, ADDR, AG_PER_USDG, CHAIN_ID_HEX, RAY, STOCKS, TARGET_VAULT_APY_RAY, TOKENS,
   USDG_DECIMALS, xLayerTestnet, type Stock,
 } from './config';
 import {
@@ -69,6 +69,11 @@ export interface Position extends RouterPosition {
   /// names: the pool holds ERC-4626 shares, the user deposited and will get
   /// back the thing OKX sends.
   collateralBase: bigint;
+  /// The vault buffer at the rate it would actually be redeemed at, where
+  /// `freeSharesValue` is the same shares at the CAPO-capped rate Arrow lends
+  /// against. The cap is the right basis for a health factor and the wrong one
+  /// for telling someone what they own.
+  redeemable: bigint;
 }
 
 export interface Protocol {
@@ -172,17 +177,20 @@ export function useXLayerPosition(
         const p = (await pub.readContract({
           address: ADDR.earnRouter, abi: earnRouterAbi, functionName: 'position', args: [address, adapter],
         })) as RouterPosition;
-        const [target, base] = await Promise.all([
+        const [target, base, redeemable] = await Promise.all([
           p.account === ZERO ? Promise.resolve(0n) : pub.readContract({
             address: p.account, abi: accountAbi, functionName: 'targetLtvBps', args: [adapter],
           }).catch(() => 0n) as Promise<bigint>,
           p.collateral === 0n ? Promise.resolve(0n) : pub.readContract({
             address: wrapper, abi: erc20Abi, functionName: 'convertToAssets', args: [p.collateral],
           }).catch(() => p.collateral) as Promise<bigint>,
+          p.account === ZERO ? Promise.resolve(0n) : pub.readContract({
+            address: p.account, abi: accountAbi, functionName: 'redeemableUsdg',
+          }).catch(() => p.freeSharesValue) as Promise<bigint>,
         ]);
         if (alive) {
           setPosition({
-            ...p, targetLtvBps: target, collateralBase: base,
+            ...p, targetLtvBps: target, collateralBase: base, redeemable,
             hasPosition: p.collateral > 0n || p.debt > 0n,
           });
         }
@@ -241,6 +249,25 @@ export interface AmplifyPosition {
   vaultApyRay: bigint;
 }
 
+/// What the pledged shares are actually worth.
+///
+/// `position()` values them at the CAPO-capped rate, because that is the rate
+/// Arrow lends against and the ceiling deliberately trails the vault while a
+/// settled coupon amortises in. That is the right number for a health factor
+/// and the wrong one for "your equity": closing the loop redeems the shares at
+/// the live rate, so this is the number that comes back to the wallet. Health
+/// and the borrow rate stay on the router's own figures.
+export async function atLiveRate(p: AmplifyPosition): Promise<AmplifyPosition> {
+  if (p.pledgedShares === 0n) return p;
+  const assets = (await pub.readContract({
+    address: ADDR.sagUSD, abi: erc20Abi, functionName: 'convertToAssets', args: [p.pledgedShares],
+  }).catch(() => 0n)) as bigint;
+  const exposure = assets / AG_PER_USDG;
+  if (exposure <= p.debt) return p;
+  const equity = exposure - p.debt;
+  return { ...p, exposure, equity, leverageBps: (exposure * 10_000n) / equity };
+}
+
 export function useAmplifyPosition(address: Address | undefined, tick: number) {
   const [pos, setPos] = useState<AmplifyPosition | null>(null);
 
@@ -252,7 +279,8 @@ export function useAmplifyPosition(address: Address | undefined, tick: number) {
         const p = await pub.readContract({
           address: ADDR.amplifyRouter, abi: amplifyRouterAbi, functionName: 'position', args: [address],
         });
-        if (alive) setPos(p as AmplifyPosition);
+        const live = await atLiveRate(p as AmplifyPosition);
+        if (alive) setPos(live);
       } catch (e) {
         console.error('xlayer amplify', e);
       }

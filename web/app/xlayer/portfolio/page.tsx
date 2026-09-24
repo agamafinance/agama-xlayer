@@ -6,9 +6,9 @@ import { formatUnits, type Address } from 'viem';
 
 import { TokenIcon } from '@/components/icons/TokenIcon';
 import { ADAPTERS, ADDR, EXPLORER, RAY, STOCK_DECIMALS, STOCKS, TOKENS, USDG_DECIMALS } from '@/lib/xlayer/config';
-import { amplifyRouterAbi, earnRouterAbi, lendingPoolAbi } from '@/lib/xlayer/generated/abis';
+import { accountAbi, amplifyRouterAbi, earnRouterAbi, lendingPoolAbi } from '@/lib/xlayer/generated/abis';
 import {
-  erc20Abi, pub, useTick, useXLayerProtocol,
+  atLiveRate, erc20Abi, pub, useTick, useXLayerProtocol,
   type AmplifyPosition, type RouterPosition,
 } from '@/lib/xlayer/useXLayer';
 import { useXLayerWallet } from '@/lib/xlayer/WalletProvider';
@@ -17,15 +17,17 @@ const usd = (v: bigint) =>
   `$${Number(formatUnits(v, USDG_DECIMALS)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const qty = (v: bigint, dp = 4) => Number(formatUnits(v, STOCK_DECIMALS)).toFixed(dp);
 
+const ZERO = '0x0000000000000000000000000000000000000000';
+
 interface StockRow {
   key: string;
+  account: Address;
   symbol: string;
   name: string;
   /// Held: in the wallet plus deposited as collateral. It is one holding.
   amount: bigint;
   value: bigint;
   debt: bigint;
-  buffer: bigint;
   hf: bigint;
 }
 
@@ -37,9 +39,10 @@ export default function XLayerPortfolioPage() {
   const [stocks, setStocks] = useState<StockRow[]>([]);
   const [amp, setAmp] = useState<AmplifyPosition | null>(null);
   const [supplied, setSupplied] = useState(0n);
+  const [buffer, setBuffer] = useState(0n);
 
   useEffect(() => {
-    if (!address) { setStocks([]); setAmp(null); setSupplied(0n); return; }
+    if (!address) { setStocks([]); setAmp(null); setSupplied(0n); setBuffer(0n); return; }
     let alive = true;
     (async () => {
       try {
@@ -61,14 +64,23 @@ export default function XLayerPortfolioPage() {
             args: [p.collateral],
           }).catch(() => p.collateral)) as bigint);
           return {
-            key: st.key, symbol: st.base, name: st.name,
+            key: st.key, symbol: st.base, name: st.name, account: p.account,
             amount: deposited + held, value: p.collateralValue, debt: p.debt,
-            buffer: p.freeSharesValue, hf: p.healthFactorRay,
+            hf: p.healthFactorRay,
           };
         }));
-        const a = (await pub.readContract({
+        // The Agama account is one per wallet, so its vault buffer is counted
+        // once here, not once per stock, and at the rate it would be redeemed
+        // at rather than the capped rate Arrow lends against.
+        const acct = rows.find((r) => r.account !== ZERO)?.account;
+        const buffer = acct
+          ? ((await pub.readContract({
+              address: acct, abi: accountAbi, functionName: 'redeemableUsdg',
+            }).catch(() => 0n)) as bigint)
+          : 0n;
+        const a = await atLiveRate((await pub.readContract({
           address: ADDR.amplifyRouter, abi: amplifyRouterAbi, functionName: 'position', args: [address],
-        })) as AmplifyPosition;
+        })) as AmplifyPosition);
         const shares = (await pub.readContract({
           address: ADDR.pool, abi: erc20Abi, functionName: 'balanceOf', args: [address],
         })) as bigint;
@@ -81,6 +93,7 @@ export default function XLayerPortfolioPage() {
           setStocks(rows.filter((r) => r.amount > 0n || r.debt > 0n));
           setAmp(a.exposure > 0n ? a : null);
           setSupplied(lent);
+          setBuffer(buffer);
         }
       } catch (e) {
         console.error('xlayer portfolio', e);
@@ -93,8 +106,8 @@ export default function XLayerPortfolioPage() {
   // What the wallet would be worth if everything were unwound right now: the
   // stock at the oracle, plus the vault buffer behind it, less what is owed.
   const netWorth =
-    wallet + supplied + (amp?.equity ?? 0n)
-    + stocks.reduce((t, r) => t + r.value + r.buffer - r.debt, 0n);
+    wallet + supplied + buffer + (amp?.equity ?? 0n)
+    + stocks.reduce((t, r) => t + r.value - r.debt, 0n);
 
   return (
     <section className="px-6 md:px-24 pt-10 md:pt-14 pb-24">

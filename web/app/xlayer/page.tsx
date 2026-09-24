@@ -329,7 +329,7 @@ export default function XLayerEarnPage() {
                   </div>
                   <dl className="mt-5 space-y-2 text-[13px]">
                     <Row label="Debt" value={usd(position?.debt)} />
-                    <Row label="Yield buffer" value={usd(position?.freeSharesValue)} />
+                    <Row label="Yield buffer" value={usd(position?.redeemable)} />
                     <Row label="Target level" value={pct(position?.targetLtvBps)} />
                   </dl>
                   <div className="mt-4 rounded-2xl border border-[#254839]/12 bg-white/60 p-4">

@@ -52,6 +52,8 @@ export const USDG_DECIMALS = 6;
 export const STOCK_DECIMALS = 18;
 export const BPS = 10_000n;
 export const RAY = 10n ** 27n;
+/// The vault keeps 18 decimals over a 6-decimal USDG, so its assets are agUSD.
+export const AG_PER_USDG = 10n ** 12n;
 
 export type StockKey = 'TSLA' | 'NVDA' | 'SPY' | 'AAPL';
 
