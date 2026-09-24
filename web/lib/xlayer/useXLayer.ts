@@ -314,17 +314,12 @@ export function useWallet() {
       .catch(() => {});
   }, []);
 
-  const connect = useCallback(async () => {
-    const eth = injectedProvider();
-    if (!eth) {
-      window.open('https://web3.okx.com/download', '_blank');
-      return;
-    }
-    const [acc] = await eth.request({ method: 'eth_requestAccounts' });
+  const toXLayer = useCallback(async (eth: any) => {
     try {
       await eth.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: CHAIN_ID_HEX }] });
+      return true;
     } catch (e: any) {
-      if (e.code === 4902) {
+      if (e?.code === 4902) {
         await eth.request({
           method: 'wallet_addEthereumChain',
           params: [{
@@ -335,27 +330,64 @@ export function useWallet() {
             blockExplorerUrls: [xLayerTestnet.blockExplorers.default.url],
           }],
         });
+        return true;
       }
+      // A locked wallet refuses to switch before it is unlocked. Connecting
+      // first and switching after is the fallback, not the happy path.
+      return false;
     }
+  }, []);
+
+  const connect = useCallback(async () => {
+    const eth = injectedProvider();
+    if (!eth) {
+      window.open('https://web3.okx.com/download', '_blank');
+      return;
+    }
+
+    // Switch first, then ask for the account. The other way round shows the
+    // connect dialog on whatever chain the wallet happens to be sitting on,
+    // which is how someone approves a connection to X Layer while the wallet
+    // says Coston2.
+    await toXLayer(eth);
+    const [acc] = await eth.request({ method: 'eth_requestAccounts' });
+
+    // And if the wallet was locked a moment ago, it can switch now.
+    const on = await eth.request({ method: 'eth_chainId' }).catch(() => undefined);
+    if (on !== CHAIN_ID_HEX) await toXLayer(eth);
+
     try {
       window.sessionStorage.removeItem(LEFT);
     } catch {
       /* ignore */
     }
     setAddress(acc as Address);
-  }, []);
+  }, [toXLayer]);
 
   useEffect(() => {
     const eth = injectedProvider();
     if (!eth) return;
+    let left = false;
     try {
-      if (window.sessionStorage.getItem(LEFT)) return;
+      left = !!window.sessionStorage.getItem(LEFT);
     } catch {
       /* ignore */
     }
-    eth.request({ method: 'eth_accounts' }).then((a: string[]) => {
-      if (a[0]) setAddress(a[0] as Address);
-    }).catch(() => {});
+    if (!left) {
+      eth.request({ method: 'eth_accounts' }).then((a: string[]) => {
+        if (a[0]) setAddress(a[0] as Address);
+      }).catch(() => {});
+    }
+
+    // The wallet can change the account or the chain without asking us.
+    const onAccounts = (a: string[]) => setAddress(a[0] as Address | undefined);
+    const onChain = () => setAddress((prev) => prev); // re-render; the guard in send() does the rest
+    eth.on?.('accountsChanged', onAccounts);
+    eth.on?.('chainChanged', onChain);
+    return () => {
+      eth.removeListener?.('accountsChanged', onAccounts);
+      eth.removeListener?.('chainChanged', onChain);
+    };
   }, []);
 
   return { address, connect, disconnect };
@@ -367,6 +399,13 @@ export async function send(
   from: Address, to: Address, abi: readonly unknown[], functionName: string, args: readonly unknown[],
 ): Promise<`0x${string}`> {
   const eth = injectedProvider();
+  // The wallet may have wandered off to another chain since connecting. Ask it
+  // back before signing, rather than letting viem refuse with a mismatch the
+  // user cannot act on.
+  const on = await eth.request({ method: 'eth_chainId' }).catch(() => undefined);
+  if (on !== CHAIN_ID_HEX) {
+    await eth.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: CHAIN_ID_HEX }] });
+  }
   const wallet = createWalletClient({ account: from, chain: xLayerTestnet, transport: custom(eth) });
   const hash = await wallet.writeContract({ address: to, abi: abi as never, functionName, args: args as never });
   await pub.waitForTransactionReceipt({ hash });
