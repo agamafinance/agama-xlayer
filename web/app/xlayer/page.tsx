@@ -6,7 +6,7 @@ import { encodeFunctionData, formatUnits, parseAbi, parseUnits, type Address } f
 import { ADDR, BPS, RAY, STOCK_DECIMALS, TOKENS, USDG_DECIMALS } from '@/lib/xlayer/config';
 import { earnRouterAbi, zapRouterAbi } from '@/lib/xlayer/generated/abis';
 import {
-  ensureAllowance, send, useXLayerMarkets, useXLayerPosition, useXLayerProtocol,
+  ensureAllowance, send, useTick, useXLayerMarkets, useXLayerPosition, useXLayerProtocol,
   type Market,
 } from '@/lib/xlayer/useXLayer';
 import { useXLayerWallet } from '@/lib/xlayer/WalletProvider';
@@ -29,7 +29,7 @@ const price = (v: bigint | undefined) =>
 export default function XLayerEarnPage() {
   const { address, connect } = useXLayerWallet();
   const { markets, refresh } = useXLayerMarkets(address);
-  const [tick, setTick] = useState(0);
+  const [tick, bumpTick] = useTick();
   const [sel, setSel] = useState(0);
   const m: Market | undefined = markets[sel];
 
@@ -67,7 +67,7 @@ export default function XLayerEarnPage() {
   const canBorrow = m ? m.borrowAllowed : true;
   const borrowBlocked = !!m && !canBorrow && ltv > 0;
 
-  const bump = () => { setTick((t) => t + 1); refresh(); };
+  const bump = () => { bumpTick(); refresh(); };
 
   /// Buy the stock and open the position in one transaction. On testnet the
   /// allowlisted venue is the oracle-priced stand-in router; on X Layer mainnet

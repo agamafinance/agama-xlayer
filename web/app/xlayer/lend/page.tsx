@@ -5,7 +5,9 @@ import { formatUnits, parseUnits } from 'viem';
 
 import { ADDR, TOKENS, USDG_DECIMALS } from '@/lib/xlayer/config';
 import { lendingPoolAbi } from '@/lib/xlayer/generated/abis';
-import { ensureAllowance, erc20Abi, pub, send, useXLayerProtocol } from '@/lib/xlayer/useXLayer';
+import {
+  ensureAllowance, erc20Abi, pub, send, useTick, useXLayerProtocol,
+} from '@/lib/xlayer/useXLayer';
 import { useXLayerWallet } from '@/lib/xlayer/WalletProvider';
 
 const usd = (v: bigint | undefined) =>
@@ -14,7 +16,7 @@ const rayPct = (v: bigint | undefined) => (v === undefined ? '—' : `${(Number(
 
 export default function XLayerLendPage() {
   const { address, connect } = useXLayerWallet();
-  const [tick, setTick] = useState(0);
+  const [tick, bumpTick] = useTick();
   const proto = useXLayerProtocol(address, tick);
 
   const [pool, setPool] = useState<{ assets: bigint; supplyRate: bigint; shares: bigint; redeemable: bigint }>();
@@ -79,7 +81,7 @@ export default function XLayerLendPage() {
       }
       setStatus('Done');
       setAmount('');
-      setTick((t) => t + 1);
+      bumpTick();
     } catch (e: unknown) {
       setStatus(e instanceof Error ? e.message.split('\n')[0].slice(0, 140) : String(e));
     } finally {

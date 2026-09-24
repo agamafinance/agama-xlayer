@@ -5,7 +5,9 @@ import { formatUnits, parseUnits } from 'viem';
 
 import { ADDR, RAY, TOKENS, USDG_DECIMALS } from '@/lib/xlayer/config';
 import { amplifyRouterAbi } from '@/lib/xlayer/generated/abis';
-import { ensureAllowance, pub, send, useAmplifyPosition, useXLayerProtocol } from '@/lib/xlayer/useXLayer';
+import {
+  ensureAllowance, pub, send, useAmplifyPosition, useTick, useXLayerProtocol,
+} from '@/lib/xlayer/useXLayer';
 import { useXLayerWallet } from '@/lib/xlayer/WalletProvider';
 
 const usd = (v: bigint | undefined) =>
@@ -14,7 +16,7 @@ const rayPct = (v: bigint | undefined) => (v === undefined ? '—' : `${(Number(
 
 export default function XLayerAmplifyPage() {
   const { address, connect } = useXLayerWallet();
-  const [tick, setTick] = useState(0);
+  const [tick, bumpTick] = useTick();
   const proto = useXLayerProtocol(address, tick);
   const pos = useAmplifyPosition(address, tick);
 
@@ -46,7 +48,7 @@ export default function XLayerAmplifyPage() {
     return () => { alive = false; };
   }, [proto, leverageBps]);
 
-  const bump = () => setTick((t) => t + 1);
+  const bump = () => bumpTick();
 
   async function open() {
     if (!address) return;

@@ -75,6 +75,22 @@ export interface Protocol {
 
 const ZERO = '0x0000000000000000000000000000000000000000' as Address;
 
+/// A counter that advances on its own, and that an action can advance early.
+///
+/// Every read here is keyed on it. Without the timer a value read from a node
+/// that was a block behind would stay wrong until the user did something else:
+/// the public RPC is load balanced, and right after a transaction one node in
+/// the pool still answers with the old state.
+export function useTick(everyMs = 12000): [number, () => void] {
+  const [tick, setTick] = useState(0);
+  const bump = useCallback(() => setTick((t) => t + 1), []);
+  useEffect(() => {
+    const id = setInterval(bump, everyMs);
+    return () => clearInterval(id);
+  }, [bump, everyMs]);
+  return [tick, bump];
+}
+
 export function useXLayerMarkets(address?: Address) {
   const [markets, setMarkets] = useState<Market[]>([]);
   const [tick, setTick] = useState(0);

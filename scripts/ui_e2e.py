@@ -208,7 +208,7 @@ def card(page, heading):
     return page.locator("div.rounded-2xl").filter(has=page.get_by_role("heading", name=heading)).first
 
 
-async def act(page, scope, button, timeout=180, settled=None):
+async def act(page, scope, button, timeout=180, settled=None, success="Done"):
     """Click an action button and wait for its verdict.
 
     `settled` is for the actions that empty the card they live in: a close
@@ -245,7 +245,7 @@ async def act(page, scope, button, timeout=180, settled=None):
     while time.time() - t0 < timeout:
         if await verdict.count() > 0:
             said = (await verdict.first.inner_text()).strip()
-            if said == "Done":
+            if said == success:
                 print(f"   ok  {button}", flush=True)
                 await page.wait_for_timeout(2000)
                 return
@@ -279,7 +279,11 @@ async def main():
         page.on("pageerror", lambda e: PAGE_ERRORS.append(str(e)))
 
         step("1. the Agama app opens on X Layer, with live oracle prices")
-        await page.goto(BASE)
+        # Through the rewrite on app.agama.finance the first load is a hop
+        # slower, and a dApp that polls never really stops loading. Wait for
+        # the document, not for the network to fall silent.
+        page.set_default_navigation_timeout(90000)
+        await page.goto(BASE, wait_until="domcontentloaded")
         await page.wait_for_timeout(7000)
         body = await page.locator("body").inner_text()
         ok("Deposit your stock" in body and "wTSLAx" in body and "$" in body,
@@ -307,7 +311,10 @@ async def main():
         else:
             await page.get_by_role("link", name="Faucet", exact=True).click()
             await page.wait_for_timeout(4000)
-            await act(page, page.locator("body"), "Get test tokens", timeout=420)
+            # This page says what it did rather than "Done", and the copy is
+            # better for it.
+            await act(page, page.locator("body"), "Get test tokens", timeout=420,
+                      success="Test tokens received")
         usdg = int(call(DEP["tokens"]["USDG"], "balanceOf(address)(uint256)", ACCOUNT).split()[0])
         ok(usdg >= 5000 * 10**6, f"{usdg / 1e6:.0f} USDG in the wallet")
 

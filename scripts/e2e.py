@@ -31,6 +31,7 @@ Part B (the remaining paths):
   18. Dave withdraws his supply with the interest paid by the borrowers
 """
 
+import atexit
 import json
 import os
 import subprocess
@@ -172,7 +173,33 @@ def b32(t):
     return "0x" + t.encode().hex().ljust(64, "0")
 
 
+def park_keeper():
+    """Stop a keeper on a timer for the length of the run, and put it back.
+
+    It acts on the same positions this script is posing: two soft deleverages
+    of one account land on a health factor nobody asked for, and the failure
+    reads like a contract bug rather than two callers doing their job. Putting
+    it back matters just as much: a testnet whose prices nobody refreshes goes
+    stale in an hour and the app stops quoting.
+    """
+    if MODE != "testnet":
+        return
+    if subprocess.run(["tmux", "has-session", "-t", "agama-keeper"], capture_output=True).returncode != 0:
+        return
+    subprocess.run(["tmux", "kill-session", "-t", "agama-keeper"], capture_output=True)
+    print("   ..  keeper parked for the run, it will be restarted at the end", flush=True)
+
+    def restart():
+        subprocess.run(["tmux", "new", "-d", "-s", "agama-keeper",
+                        "./scripts/run-keeper.sh testnet > /tmp/keeper-testnet.log 2>&1"],
+                       cwd=ROOT, capture_output=True)
+        print("   ..  keeper restarted", flush=True)
+
+    atexit.register(restart)
+
+
 def fund():
+    park_keeper()
     step("0. funding actors")
     if MODE == "fork":
         for n in ACTORS:
