@@ -20,8 +20,10 @@ lib/xlayer/
   generated/         ABIs and deployments, written by scripts/sync-xlayer.mjs
 app/xlayer/
   page.tsx           Earn: deposit the stock, get more stock
+  portfolio/         every position, and a net worth that nets the debt out
   amplify/           loop the vault, one slider
-  lend/              supply USDG against tokenized stocks
+  lend/              supply USDG against tokenized stocks (linked from Portfolio,
+                     not a tab: it is the lender side, not one of the products)
   faucet/            testnet stand-ins
 app/api/zap/         OKX Onchain OS DEX aggregator, signed server side
 components/XLayerConnectPill.tsx

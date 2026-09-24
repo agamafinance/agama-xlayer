@@ -10,7 +10,8 @@ transaction. Screenshots land in ../agama-xlayer-local/ui-e2e/.
 
 Flow: page loads with live prices -> connect -> faucet -> Earn from the OKX base
 token -> the agent panel -> Amplify open and close -> Lend supply and withdraw ->
-Earn close. Fails on any page error or any error the app puts under a button.
+Portfolio -> Earn close. Fails on any page error or any error the app puts
+under a button.
 
 Needs testnet OKB on the deployer: the run funds a throwaway wallet with
 0.001 OKB and the deployer tops up from https://web3.okx.com/xlayer/faucet.
@@ -288,7 +289,7 @@ async def main():
         body = await page.locator("body").inner_text()
         ok("Deposit your stock" in body and "wTSLAx" in body and "$" in body,
            "Earn page rendered in the Agama design with the four markets priced")
-        ok(all(t in body for t in ("Earn", "Amplify", "Lend", "Faucet")), "the four tabs are there")
+        ok(all(t in body for t in ("Portfolio", "Earn", "Amplify", "Faucet")), "the four tabs are there")
         await shot(page, "f01-earn")
 
         step("2. the wallet is picked up")
@@ -356,7 +357,9 @@ async def main():
         ok(amp["exposure"] == 0, "loop closed, equity back in USDG")
 
         step("7. Lend: supply 100 USDG, then withdraw it")
-        await page.get_by_role("link", name="Lend", exact=True).click()
+        # Lend is the lender side of the pool, not one of the two products, so
+        # it lost its tab. Portfolio is what links to it now.
+        await page.goto(BASE + "/lend", wait_until="domcontentloaded")
         await page.wait_for_timeout(6000)
         # Anchored on the supply/withdraw pill, which is in the card whichever
         # tab is showing; the action button is renamed by the tab itself.
@@ -385,7 +388,15 @@ async def main():
         dust = int(call(DEP["contracts"]["pool"], "convertToAssets(uint256)(uint256)", str(left)).split()[0])
         ok(dust < 10_000, f"withdrawn, {dust} base units of dust left")
 
-        step("8. Earn: close, the stock comes back as the token OKX accepts")
+        step("8. Portfolio: everything in one place")
+        await page.get_by_role("link", name="Portfolio", exact=True).click()
+        await page.wait_for_timeout(7000)
+        body = await page.locator("body").inner_text()
+        ok("Net worth" in body and "wTSLAx" in body and "Supplied to Arrow" not in body,
+           "Portfolio shows the stock position and the wallet, and the lending row is gone with the withdrawal")
+        await shot(page, "f05-portfolio")
+
+        step("9. Earn: close, the stock comes back as the token OKX accepts")
         await page.get_by_role("link", name="Earn", exact=True).click()
         await page.wait_for_timeout(6000)
         await act(page, card(page, "Your position"), "Close, send the stock back", timeout=300,
@@ -394,7 +405,7 @@ async def main():
         ok(pos["collateral"] == 0 and pos["debt"] == 0, "position closed, nothing left owed")
         await shot(page, "f04-closed")
 
-        step("9. no page errors")
+        step("10. no page errors")
         ok(not PAGE_ERRORS, f"no page errors ({len(PAGE_ERRORS)})")
 
         await browser.close()

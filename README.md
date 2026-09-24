@@ -114,7 +114,7 @@ Imported unchanged: `DebtToken`, rate and reserve libraries, `agUSD`, `sagUSD`.
 
 X Layer became one more platform in it. That is the whole point: the Dev Day build is not a demo that looks like a demo, it is Agama with a new network in it, and every component it reuses is one we did not have to invent for a deadline.
 
-What was added on top of the fork: the `xlayer` platform and its network entry, `lib/xlayer` reading the Foundry deployment, the Earn page, Amplify, Lend, the testnet faucet, and the OKX aggregator route. What was removed: the standalone front this build started with.
+What was added on top of the fork: the `xlayer` platform and its network entry, `lib/xlayer` reading the Foundry deployment, and its five pages. Four are tabs, the ones a holder uses: Portfolio, Earn, Amplify and the testnet faucet. Lend is the lender side of the pool rather than one of the two products, so Portfolio links to it instead of the navbar. What was removed: the standalone front this build started with.
 
 ## Run it
 
