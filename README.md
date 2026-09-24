@@ -129,7 +129,14 @@ python3 scripts/e2e.py fork        # full scenario with real transactions
 
 # front
 cd web && pnpm install && pnpm dev # http://localhost:3004/xlayer
+
+# the browser flows, against the local fork: free gas, no faucet queue
+cd web && INCLUDE_FORK_DEPLOYMENTS=1 node scripts/sync-xlayer.mjs
+NEXT_PUBLIC_XLAYER_CHAIN_ID=1961 NEXT_PUBLIC_XLAYER_RPC=http://127.0.0.1:8545 pnpm build && pnpm start -p 3021
+CHAIN_ID=1961 python3 scripts/ui_e2e.py http://127.0.0.1:3021/xlayer
 ```
+
+`scripts/ui_e2e.py` drives the real app in a headless browser with an injected wallet: every click is a transaction. Pointed at the testnet it needs the deployer to have OKB; pointed at the fork it needs nothing, which is how the flows get tested when the faucet is dry.
 
 The end-to-end scenario: Alice opens Earn on 10 wTSLAx at 25%, Carol at 30% without a buffer, Bob opens Amplify 3x; vault yield is settled; TSLA crashes to 71.5%; the keeper soft-deleverages Alice (she keeps all 10 wTSLAx) and the stability pool partially liquidates Carol (she keeps 5.4 of 10); a buyer takes the seized stock at a 3% discount; TSLA recovers and everyone exits.
 

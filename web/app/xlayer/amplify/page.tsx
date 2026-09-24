@@ -22,6 +22,7 @@ export default function XLayerAmplifyPage() {
   const [leverage, setLeverage] = useState(2);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
+  const [pending, setPending] = useState<'open' | 'close'>('open');
   const [netApy, setNetApy] = useState<bigint>();
 
   const amt = useMemo(() => {
@@ -49,6 +50,7 @@ export default function XLayerAmplifyPage() {
 
   async function open() {
     if (!address) return;
+    setPending('open');
     setBusy(true);
     try {
       setStatus('Approving…');
@@ -67,10 +69,13 @@ export default function XLayerAmplifyPage() {
 
   async function close() {
     if (!address) return;
+    setPending('close');
     setBusy(true);
     try {
       setStatus('Unwinding…');
-      await send(address, ADDR.amplifyRouter, amplifyRouterAbi, 'close', []);
+      // `true` asks for USDG back rather than vault shares; when the equity is
+      // backing an Earn position the account keeps it as that position's buffer.
+      await send(address, ADDR.amplifyRouter, amplifyRouterAbi, 'close', [true]);
       setStatus('Done');
       bump();
     } catch (e: unknown) {
@@ -159,7 +164,9 @@ export default function XLayerAmplifyPage() {
             >
               {!address ? 'Connect Wallet' : busy ? status || 'Working…' : `Open at ${leverage.toFixed(1)}x`}
             </button>
-            {status && !busy && <p className="mt-2 text-[12px] text-fg-muted">{status}</p>}
+            {status && !busy && pending === 'open' && (
+              <p className="mt-2 text-[12px] text-fg-muted">{status}</p>
+            )}
           </div>
 
           <div className="rounded-2xl bg-[#fdfaf1] p-6 shadow-[0_1px_3px_rgba(20,50,35,0.06),0_10px_30px_rgba(20,50,35,0.09)]">
@@ -189,6 +196,9 @@ export default function XLayerAmplifyPage() {
                 >
                   Close to USDG
                 </button>
+                {status && !busy && pending === 'close' && (
+                  <p className="mt-2 text-[12px] text-fg-muted">{status}</p>
+                )}
               </>
             )}
           </div>

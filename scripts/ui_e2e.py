@@ -28,23 +28,35 @@ import urllib.request
 from playwright.async_api import async_playwright
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-BASE = (sys.argv[1] if len(sys.argv) > 1 else "https://app.agama.finance/xlayer").rstrip("/")
-RPC = "https://testrpc.xlayer.tech/terigon"
-CHAIN_HEX = hex(1952)
+# Against X Layer testnet by default. Against a local anvil fork of X Layer,
+# where gas is free and the faucet is not a queue:
+#   CHAIN_ID=1961 python3 scripts/ui_e2e.py http://127.0.0.1:3021/xlayer
+CHAIN_ID = int(os.environ.get("CHAIN_ID", "1952"))
+IS_FORK = CHAIN_ID == 1961
+BASE = (sys.argv[1] if len(sys.argv) > 1
+        else ("http://127.0.0.1:3021/xlayer" if IS_FORK else "https://app.agama.finance/xlayer")).rstrip("/")
+RPC = os.environ.get("RPC_URL", "http://127.0.0.1:8545" if IS_FORK else "https://testrpc.xlayer.tech/terigon")
+CHAIN_HEX = hex(CHAIN_ID)
 OUT = os.path.join(os.path.dirname(ROOT), "agama-xlayer-local", "ui-e2e")
 os.makedirs(OUT, exist_ok=True)
 
-DEP = json.load(open(os.path.join(ROOT, "deployments", "1952.json")))
+DEP = json.load(open(os.path.join(ROOT, "deployments", f"{CHAIN_ID}.json")))
 PAGE_ERRORS = []
+
+ANVIL0 = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+ANVIL_UI = "0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba"  # anvil #6
 
 
 def admin_key():
+    if IS_FORK:
+        return ANVIL0
     d = json.load(open(os.path.join(ROOT, ".keys", "deployer.json")))
     return (d[0] if isinstance(d, list) else d)["private_key"]
 
 
 # A fresh throwaway wallet per run: the flow is always the first-time user path.
-UI_KEY = (lambda w: (w[0] if isinstance(w, list) else w)["private_key"])(
+# On a fork an anvil account is used instead, already funded with gas.
+UI_KEY = ANVIL_UI if IS_FORK else (lambda w: (w[0] if isinstance(w, list) else w)["private_key"])(
     json.loads(subprocess.check_output(["cast", "wallet", "new", "--json"]))
 )
 ACCOUNT = subprocess.check_output(["cast", "wallet", "address", UI_KEY], text=True).strip()
@@ -132,10 +144,28 @@ def earn_position():
 
 
 def amplify_position():
+    # (account, pledgedShares, exposure, debt, equity, leverageBps,
+    #  healthFactorRay, borrowRateRay, vaultApyRay)
     out = call(DEP["contracts"]["amplifyRouter"],
-               "position(address)((uint256,uint256,uint256,uint256,uint256))", ACCOUNT)
+               "position(address)((address,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256))",
+               ACCOUNT)
     f = [x.split()[0] for x in out.strip("()").split(", ")]
-    return {"equity": int(f[0]), "exposure": int(f[1]), "debt": int(f[2]), "leverageBps": int(f[3])}
+    return {"account": f[0], "pledgedShares": int(f[1]), "exposure": int(f[2]), "debt": int(f[3]),
+            "equity": int(f[4]), "leverageBps": int(f[5])}
+
+
+def fund_on_fork():
+    """Real tokens have no faucet, so the fork gets its balances written."""
+    def poke(token, slot, amount):
+        key = subprocess.check_output(["cast", "index", "address", ACCOUNT, slot], text=True).strip()
+        subprocess.run(["cast", "rpc", "anvil_setStorageAt", token, key, "0x" + format(amount, "064x"),
+                        "--rpc-url", RPC], capture_output=True, check=True)
+
+    poke(DEP["tokens"]["USDG"], "1", 10_000 * 10**6)
+    for w in ("wTSLAx", "wNVDAx", "wSPYx", "wAAPLx"):
+        poke(DEP["tokens"][w], "101", 10 * 10**18)
+    base = call(DEP["tokens"]["wTSLAx"], "asset()(address)").split()[0]
+    poke(base, "263", 10 * 10**18)
 
 
 def wait_chain(read, pred, timeout=90):
@@ -186,17 +216,23 @@ async def act(page, scope, button, timeout=180):
             break
         await page.wait_for_timeout(250)
     await btn.click()
+    # The card only renders a status line once the action has finished, so the
+    # first line to appear IS the verdict: "Done", or whatever went wrong.
+    # Listing the words that mean failure would miss the ones we have not seen
+    # yet, which is how an ABI mismatch once sat in a card for five minutes
+    # while the test waited for a word it did not contain.
     t0 = time.time()
+    before = await scope.inner_text()
     while time.time() - t0 < timeout:
         txt = await scope.inner_text()
         if re.search(r"\bDone\b", txt):
             print(f"   ok  {button}", flush=True)
             await page.wait_for_timeout(2000)
             return
-        low = txt.lower()
-        for bad in ("reverted", "insufficient", "error", "failed", "rejected"):
-            if bad in low:
-                raise SystemExit(f"   FAIL: {button}: {txt.replace(chr(10), ' | ')[:300]}")
+        extra = txt.replace(before, "").strip()
+        if extra and not extra.startswith(("Approving", "Opening", "Closing", "Unwinding",
+                                           "Buying", "Supplying", "Withdrawing", "Working")):
+            raise SystemExit(f"   FAIL: {button}: {extra.replace(chr(10), ' | ')[:300]}")
         await page.wait_for_timeout(500)
     raise SystemExit(f"   FAIL: {button}: nothing after {timeout}s")
 
@@ -243,12 +279,19 @@ async def main():
             nav = await page.locator("header").inner_text()
         ok(ACCOUNT[-4:].lower() in nav.lower(), f"wallet connected, navbar shows {nav.splitlines()[-1]}")
 
-        step("3. faucet: 5,000 USDG and 10 of each stock, wrapped and base")
-        await page.get_by_role("link", name="Faucet", exact=True).click()
-        await page.wait_for_timeout(4000)
-        await act(page, page.locator("body"), "Get test tokens", timeout=420)
+        step("3. tokens in the wallet")
+        if IS_FORK:
+            # The fork runs on the real USDG and the real Backed wrappers, which
+            # have no faucet. Write the balances instead: slot 1 for USDG, 101
+            # for the wrappers, 263 for the base xStocks.
+            fund_on_fork()
+            ok(True, "balances written on the fork (real tokens, no faucet)")
+        else:
+            await page.get_by_role("link", name="Faucet", exact=True).click()
+            await page.wait_for_timeout(4000)
+            await act(page, page.locator("body"), "Get test tokens", timeout=420)
         usdg = int(call(DEP["tokens"]["USDG"], "balanceOf(address)(uint256)", ACCOUNT).split()[0])
-        ok(usdg >= 5000 * 10**6, f"{usdg / 1e6:.0f} USDG received")
+        ok(usdg >= 5000 * 10**6, f"{usdg / 1e6:.0f} USDG in the wallet")
 
         step("4. Earn: deposit the token an OKX withdrawal delivers, at 25% LTV")
         await page.get_by_role("link", name="Earn", exact=True).click()

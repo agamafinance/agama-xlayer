@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import { encodeFunctionData, formatUnits, parseAbi, parseUnits, type Address } from 'viem';
 
-import { ADDR, BPS, CHAIN_ID, RAY, STOCK_DECIMALS, TOKENS, USDG_DECIMALS } from '@/lib/xlayer/config';
+import { ADDR, BPS, RAY, STOCK_DECIMALS, TOKENS, USDG_DECIMALS } from '@/lib/xlayer/config';
 import { earnRouterAbi, zapRouterAbi } from '@/lib/xlayer/generated/abis';
 import {
   ensureAllowance, send, useXLayerMarkets, useXLayerPosition, useXLayerProtocol,
@@ -42,6 +42,9 @@ export default function XLayerEarnPage() {
   const [buying, setBuying] = useState(false);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
+  // Which card the running action belongs to, so its result is reported under
+  // the button that was pressed and not in the card next to it.
+  const [pending, setPending] = useState<'deposit' | 'close'>('deposit');
 
   const token = useBase && m?.base ? m.base : m?.wrapper;
   const balance = useBase && m?.base ? m?.baseBalance : m?.balance;
@@ -72,14 +75,17 @@ export default function XLayerEarnPage() {
   /// the call server side.
   async function buyAndEarn() {
     if (!address || !m) return;
+    setPending('deposit');
     const zap = ADDR.zapRouter;
     const dex = ADDR.testDexRouter;
     if (!zap) { setStatus('No zap router on this network'); return; }
     setBusy(true);
     try {
       let target: Address, spender: Address, data: `0x${string}`, minOut: bigint;
-      if (CHAIN_ID === 1952) {
-        if (!dex) throw new Error('No swap venue on this network');
+      // Whichever venue this deployment has: the stand-in router when one was
+      // deployed with it, the OKX aggregator otherwise. Keying off the chain id
+      // instead would send a local fork to an API that has never heard of it.
+      if (dex) {
         if (!m.wrapperPrice) throw new Error('No wrapper price yet');
         target = dex; spender = dex;
         data = encodeFunctionData({
@@ -113,6 +119,7 @@ export default function XLayerEarnPage() {
 
   async function open() {
     if (!address || !m || !token) return;
+    setPending('deposit');
     setBusy(true);
     try {
       setStatus('Approving…');
@@ -132,6 +139,7 @@ export default function XLayerEarnPage() {
 
   async function close() {
     if (!address || !m) return;
+    setPending('close');
     setBusy(true);
     try {
       setStatus('Closing…');
@@ -316,7 +324,9 @@ export default function XLayerEarnPage() {
                           ? 'Deposit and borrow'
                           : 'Deposit as collateral'}
               </button>
-              {status && !busy && <p className="mt-2 text-[12px] text-fg-muted">{status}</p>}
+              {status && !busy && pending === 'deposit' && (
+                <p className="mt-2 text-[12px] text-fg-muted">{status}</p>
+              )}
             </div>
 
             <div className="rounded-2xl bg-[#fdfaf1] p-6 shadow-[0_1px_3px_rgba(20,50,35,0.06),0_10px_30px_rgba(20,50,35,0.09)]">
@@ -400,6 +410,9 @@ export default function XLayerEarnPage() {
                   >
                     Close, send the stock back
                   </button>
+                  {status && !busy && pending === 'close' && (
+                    <p className="mt-2 text-[12px] text-fg-muted">{status}</p>
+                  )}
                 </>
               )}
             </div>

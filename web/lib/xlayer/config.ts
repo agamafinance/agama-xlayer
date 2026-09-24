@@ -4,14 +4,25 @@ import { defineChain, stringToHex } from 'viem';
 
 import { deployments } from './generated/deployments';
 
-export const CHAIN_ID = 1952;
-export const CHAIN_ID_HEX = '0x7a0';
+// X Layer Testnet by default. Pointing this at a local anvil fork of X Layer
+// (chain 1961) is how the browser flows get tested without spending testnet
+// gas, which a public faucet rations:
+//   NEXT_PUBLIC_XLAYER_CHAIN_ID=1961 NEXT_PUBLIC_XLAYER_RPC=http://127.0.0.1:8545 pnpm dev
+// The fork deployment only reaches the bundle when the sync is asked for it
+// (INCLUDE_FORK_DEPLOYMENTS=1), so a production build can never show a wallet
+// addresses that exist on one laptop.
+export const CHAIN_ID = Number(process.env.NEXT_PUBLIC_XLAYER_CHAIN_ID ?? 1952);
+export const CHAIN_ID_HEX = `0x${CHAIN_ID.toString(16)}`;
+const IS_FORK = CHAIN_ID === 1961;
+const RPC_URL =
+  process.env.NEXT_PUBLIC_XLAYER_RPC ||
+  (IS_FORK ? 'http://127.0.0.1:8545' : 'https://testrpc.xlayer.tech/terigon');
 
 export const xLayerTestnet = defineChain({
   id: CHAIN_ID,
-  name: 'X Layer Testnet',
+  name: IS_FORK ? 'X Layer (local fork)' : 'X Layer Testnet',
   nativeCurrency: { name: 'OKB', symbol: 'OKB', decimals: 18 },
-  rpcUrls: { default: { http: ['https://testrpc.xlayer.tech/terigon'] } },
+  rpcUrls: { default: { http: [RPC_URL] } },
   blockExplorers: {
     default: { name: 'OKX Explorer', url: 'https://www.okx.com/web3/explorer/xlayer-test' },
   },
@@ -19,7 +30,7 @@ export const xLayerTestnet = defineChain({
 });
 
 const found = deployments[CHAIN_ID];
-if (!found) throw new Error('no X Layer Testnet deployment in lib/xlayer/generated');
+if (!found) throw new Error(`no deployment for chain ${CHAIN_ID} in lib/xlayer/generated`);
 export const D = found;
 export const ADDR = D.contracts;
 export const TOKENS = D.tokens;

@@ -1099,6 +1099,19 @@ export const accountAbi = [
   },
   {
     "type": "function",
+    "name": "MAX_COMPOUND_SLIPPAGE_BPS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "MAX_LEVERAGE_BPS",
     "inputs": [],
     "outputs": [
@@ -1868,6 +1881,22 @@ export const accountAbi = [
       },
       {
         "name": "targetBps",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "CompoundPriceTooBad",
+    "inputs": [
+      {
+        "name": "valueAdded",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "floor",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -9188,6 +9217,17 @@ export const stockOracleAbi = [
   },
   {
     "type": "error",
+    "name": "PriceOutOfRange",
+    "inputs": [
+      {
+        "name": "price",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "PriceStale",
     "inputs": [
       {
@@ -13379,6 +13419,22 @@ export const allErrorsAbi = [
   },
   {
     "type": "error",
+    "name": "CompoundPriceTooBad",
+    "inputs": [
+      {
+        "name": "valueAdded",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "floor",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "HealthFactorOk",
     "inputs": [
       {
@@ -13952,6 +14008,17 @@ export const allErrorsAbi = [
     "type": "error",
     "name": "ObservationNotNewer",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "PriceOutOfRange",
+    "inputs": [
+      {
+        "name": "price",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
   },
   {
     "type": "error",

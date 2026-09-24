@@ -188,8 +188,20 @@ export function useXLayerProtocol(address: Address | undefined, tick: number) {
   return proto;
 }
 
+export interface AmplifyPosition {
+  account: Address;
+  pledgedShares: bigint;
+  exposure: bigint;
+  debt: bigint;
+  equity: bigint;
+  leverageBps: bigint;
+  healthFactorRay: bigint;
+  borrowRateRay: bigint;
+  vaultApyRay: bigint;
+}
+
 export function useAmplifyPosition(address: Address | undefined, tick: number) {
-  const [pos, setPos] = useState<{ equity: bigint; exposure: bigint; debt: bigint; leverageBps: bigint; healthFactorRay: bigint } | null>(null);
+  const [pos, setPos] = useState<AmplifyPosition | null>(null);
 
   useEffect(() => {
     if (!address) { setPos(null); return; }
@@ -199,7 +211,7 @@ export function useAmplifyPosition(address: Address | undefined, tick: number) {
         const p = await pub.readContract({
           address: ADDR.amplifyRouter, abi: amplifyRouterAbi, functionName: 'position', args: [address],
         });
-        if (alive) setPos(p as typeof pos);
+        if (alive) setPos(p as AmplifyPosition);
       } catch (e) {
         console.error('xlayer amplify', e);
       }
