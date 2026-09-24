@@ -39,6 +39,14 @@ const TOKENS: Record<string, TokenInfo> = {
   USDT: { bg: '#26A17B', fg: '#FFFFFF', symbol: 'T' },
   ETH: { bg: '#627EEA', fg: '#FFFFFF', symbol: 'E' },
   BTC: { bg: '#F7931A', fg: '#FFFFFF', symbol: 'B' },
+  // X Layer: USDG and the Backed xStock wrappers. Cream discs with a dark
+  // green letter, the same inversion the vault share tokens use, so a stock
+  // reads as collateral rather than as another stablecoin.
+  USDG: { bg: '#254839', fg: '#fdf8ed', symbol: 'G' },
+  wTSLAx: { bg: '#ece6db', fg: '#254839', symbol: 'T' },
+  wNVDAx: { bg: '#ece6db', fg: '#254839', symbol: 'N' },
+  wSPYx: { bg: '#ece6db', fg: '#254839', symbol: 'S' },
+  wAAPLx: { bg: '#ece6db', fg: '#254839', symbol: 'A' },
 };
 
 const FALLBACK = { bg: '#3B4256', fg: '#FFFFFF', symbol: '?' };
