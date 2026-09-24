@@ -247,11 +247,38 @@ export function useAmplifyPosition(address: Address | undefined, tick: number) {
 
 // ---- wallet -----------------------------------------------------------------
 
+/// The wallet to talk to.
+///
+/// `window.ethereum` is whichever extension won the injection race, and with
+/// several installed that is a coin toss: on a machine with Rabby, Rabby
+/// answers and offers its own chooser, which has no OKX in it. The OKX
+/// extension injects `window.okxwallet` under its own name, and so does the
+/// OKX app's in-app browser, so ask for it by name first. EIP-6963 covers the
+/// wallets that announce themselves properly, and `window.ethereum` is the
+/// last resort.
+function injectedProvider(): any {
+  if (typeof window === 'undefined') return undefined;
+  const w = window as unknown as { okxwallet?: any; ethereum?: any };
+  if (w.okxwallet) return w.okxwallet;
+  const announced = discovered.find((p) => p.info.rdns === 'com.okex.wallet');
+  return announced?.provider ?? discovered[0]?.provider ?? w.ethereum;
+}
+
+/// EIP-6963 announcements, collected as they arrive.
+const discovered: { info: { rdns: string; name: string }; provider: any }[] = [];
+if (typeof window !== 'undefined') {
+  window.addEventListener('eip6963:announceProvider', (e) => {
+    const d = (e as CustomEvent).detail as { info: { rdns: string; name: string }; provider: any };
+    if (d?.info?.rdns && !discovered.some((p) => p.info.rdns === d.info.rdns)) discovered.push(d);
+  });
+  window.dispatchEvent(new Event('eip6963:requestProvider'));
+}
+
 export function useWallet() {
   const [address, setAddress] = useState<Address | undefined>();
 
   const connect = useCallback(async () => {
-    const eth = (window as unknown as { ethereum?: any }).ethereum;
+    const eth = injectedProvider();
     if (!eth) {
       window.open('https://web3.okx.com/download', '_blank');
       return;
@@ -277,7 +304,7 @@ export function useWallet() {
   }, []);
 
   useEffect(() => {
-    const eth = (window as unknown as { ethereum?: any }).ethereum;
+    const eth = injectedProvider();
     if (!eth) return;
     eth.request({ method: 'eth_accounts' }).then((a: string[]) => {
       if (a[0]) setAddress(a[0] as Address);
@@ -292,7 +319,7 @@ export function useWallet() {
 export async function send(
   from: Address, to: Address, abi: readonly unknown[], functionName: string, args: readonly unknown[],
 ): Promise<`0x${string}`> {
-  const eth = (window as unknown as { ethereum?: any }).ethereum;
+  const eth = injectedProvider();
   const wallet = createWalletClient({ account: from, chain: xLayerTestnet, transport: custom(eth) });
   const hash = await wallet.writeContract({ address: to, abi: abi as never, functionName, args: args as never });
   await pub.waitForTransactionReceipt({ hash });
