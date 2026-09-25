@@ -139,8 +139,7 @@ export default function XLayerFaucetPage() {
 
           <Link
             href="/xlayer"
-            prefetch={false}
-            className="group mt-6 flex items-center gap-4 rounded-2xl bg-[#254839] px-5 py-4"
+                  className="group mt-6 flex items-center gap-4 rounded-2xl bg-[#254839] px-5 py-4"
           >
             <img src="/agama-logo-circle.svg" alt="" className="h-10 w-10" />
             <div>

@@ -6,9 +6,9 @@ import { formatUnits, type Address } from 'viem';
 
 import { TokenIcon } from '@/components/icons/TokenIcon';
 import { ADAPTERS, ADDR, EXPLORER, RAY, STOCK_DECIMALS, STOCKS, TOKENS, USDG_DECIMALS } from '@/lib/xlayer/config';
-import { accountAbi, amplifyRouterAbi, earnRouterAbi, lendingPoolAbi } from '@/lib/xlayer/generated/abis';
+import { accountAbi, amplifyRouterAbi, earnRouterAbi, lendingPoolAbi, stockOracleAbi } from '@/lib/xlayer/generated/abis';
 import {
-  atLiveRate, erc20Abi, pub, useTick, useXLayerMarkets, useXLayerProtocol,
+  atLiveRate, baseTokens, erc20Abi, pub, useTick, useXLayerProtocol,
   type AmplifyPosition, type RouterPosition,
 } from '@/lib/xlayer/useXLayer';
 import { useXLayerWallet } from '@/lib/xlayer/WalletProvider';
@@ -21,7 +21,6 @@ const ZERO = '0x0000000000000000000000000000000000000000';
 
 interface StockRow {
   key: string;
-  account: Address;
   symbol: string;
   name: string;
   /// Held: in the wallet plus deposited as collateral. It is one holding.
@@ -36,83 +35,95 @@ export default function XLayerPortfolioPage() {
   const { address, connect } = useXLayerWallet();
   const [tick] = useTick();
   const proto = useXLayerProtocol(address, tick);
-  const { markets } = useXLayerMarkets(address);
 
   const [stocks, setStocks] = useState<StockRow[]>([]);
   const [amp, setAmp] = useState<AmplifyPosition | null>(null);
   const [supplied, setSupplied] = useState(0n);
   const [buffer, setBuffer] = useState(0n);
+  // The page paints once, with everything on it. Filling it in as each read
+  // lands is how it came to appear in pieces, a row at a time.
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    if (!address) { setStocks([]); setAmp(null); setSupplied(0n); setBuffer(0n); return; }
+    if (!address) { setStocks([]); setAmp(null); setSupplied(0n); setBuffer(0n); setLoaded(false); return; }
     let alive = true;
     (async () => {
       try {
-        const rows = await Promise.all(STOCKS.map(async (st) => {
-          const wrapper = TOKENS[st.wrapper];
-          const m = markets.find((x) => x.stock.key === st.key);
-          const [p, baseHeld] = await Promise.all([
-            pub.readContract({
-              address: ADDR.earnRouter, abi: earnRouterAbi, functionName: 'position',
-              args: [address, ADAPTERS[st.key]],
-            }) as Promise<RouterPosition>,
-            pub.readContract({
-              address: wrapper, abi: erc20Abi, functionName: 'asset',
-            }).then((base) => pub.readContract({
-              address: base as Address, abi: erc20Abi, functionName: 'balanceOf', args: [address],
-            })) as Promise<bigint>,
-          ]);
-          // One holding, wherever it sits: pledged as collateral, wrapped in the
-          // wallet, or in the base token OKX sends. Add it up in wrapper shares,
-          // which is the unit the price is quoted in, then say it in the base
-          // token, which is the one the app names.
-          const fromBase = baseHeld === 0n ? 0n : ((await pub.readContract({
-            address: wrapper, abi: erc20Abi, functionName: 'convertToShares', args: [baseHeld],
-          }).catch(() => baseHeld)) as bigint);
-          const shares = p.collateral + (m?.balance ?? 0n) + fromBase;
-          const amount = shares === 0n ? 0n : ((await pub.readContract({
-            address: wrapper, abi: erc20Abi, functionName: 'convertToAssets', args: [shares],
-          }).catch(() => shares)) as bigint);
-          return {
-            key: st.key, symbol: st.base, name: st.name, account: p.account,
-            amount, value: (shares * (m?.wrapperPrice ?? 0n)) / 10n ** BigInt(STOCK_DECIMALS),
-            deposited: p.collateral, debt: p.debt, hf: p.healthFactorRay,
-          };
-        }));
+        const base = await baseTokens();
+        // Everything that depends on nothing, in one go. viem batches the reads
+        // issued in the same tick into a single Multicall3 call, so this whole
+        // block is one round trip: awaiting them one after the other is what
+        // made the page arrive in pieces.
+        const [positions, feeds, wrapped, held, amp0, poolShares] = await Promise.all([
+          Promise.all(STOCKS.map((st) => pub.readContract({
+            address: ADDR.earnRouter, abi: earnRouterAbi, functionName: 'position',
+            args: [address, ADAPTERS[st.key]],
+          }) as Promise<RouterPosition>)),
+          Promise.all(STOCKS.map((st) => pub.readContract({
+            address: ADDR.oracle, abi: stockOracleAbi, functionName: 'feed', args: [st.ticker],
+          }) as Promise<{ price: bigint }>)),
+          Promise.all(STOCKS.map((st) => pub.readContract({
+            address: TOKENS[st.wrapper], abi: erc20Abi, functionName: 'balanceOf', args: [address],
+          }) as Promise<bigint>)),
+          Promise.all(STOCKS.map((st) => pub.readContract({
+            address: base[st.key], abi: erc20Abi, functionName: 'balanceOf', args: [address],
+          }) as Promise<bigint>)),
+          pub.readContract({
+            address: ADDR.amplifyRouter, abi: amplifyRouterAbi, functionName: 'position', args: [address],
+          }) as Promise<AmplifyPosition>,
+          pub.readContract({
+            address: ADDR.pool, abi: erc20Abi, functionName: 'balanceOf', args: [address],
+          }) as Promise<bigint>,
+        ]);
         // The Agama account is one per wallet, so its vault buffer is counted
-        // once here, not once per stock, and at the rate it would be redeemed
-        // at rather than the capped rate Arrow lends against.
-        const acct = rows.find((r) => r.account !== ZERO)?.account;
-        const buffer = acct
-          ? ((await pub.readContract({
-              address: acct, abi: accountAbi, functionName: 'redeemableUsdg',
-            }).catch(() => 0n)) as bigint)
-          : 0n;
-        const a = await atLiveRate((await pub.readContract({
-          address: ADDR.amplifyRouter, abi: amplifyRouterAbi, functionName: 'position', args: [address],
-        })) as AmplifyPosition);
-        const shares = (await pub.readContract({
-          address: ADDR.pool, abi: erc20Abi, functionName: 'balanceOf', args: [address],
-        })) as bigint;
-        const lent = shares > 0n
-          ? ((await pub.readContract({
-              address: ADDR.pool, abi: lendingPoolAbi, functionName: 'convertToAssets', args: [shares],
-            })) as bigint)
-          : 0n;
+        // once, not once per stock, and at the rate it would be redeemed at
+        // rather than the capped rate Arrow lends against.
+        const acct = positions.find((p) => p.account !== ZERO)?.account;
+        // Second and last round trip: the reads that needed an answer above.
+        const [inBase, buf, lent, a] = await Promise.all([
+          Promise.all(STOCKS.map((st, i) => {
+            const shares = positions[i].collateral + wrapped[i];
+            return shares === 0n ? Promise.resolve(0n) : pub.readContract({
+              address: TOKENS[st.wrapper], abi: erc20Abi, functionName: 'convertToAssets', args: [shares],
+            }).catch(() => shares) as Promise<bigint>;
+          })),
+          acct ? pub.readContract({
+            address: acct, abi: accountAbi, functionName: 'redeemableUsdg',
+          }).catch(() => 0n) as Promise<bigint> : Promise.resolve(0n),
+          poolShares > 0n ? pub.readContract({
+            address: ADDR.pool, abi: lendingPoolAbi, functionName: 'convertToAssets', args: [poolShares],
+          }) as Promise<bigint> : Promise.resolve(0n),
+          atLiveRate(amp0),
+        ]);
+        // One holding, wherever it sits: pledged as collateral, wrapped in the
+        // wallet, or in the base token OKX sends. Said and priced in the base
+        // token, the one the app names.
+        const rows = STOCKS.map((st, i) => {
+          const amount = inBase[i] + held[i];
+          return {
+            key: st.key, symbol: st.base, name: st.name,
+            amount, value: (amount * feeds[i].price) / 10n ** 30n,
+            deposited: positions[i].collateral, debt: positions[i].debt, hf: positions[i].healthFactorRay,
+          };
+        });
         if (alive) {
           setStocks(rows.filter((r) => r.amount > 0n || r.debt > 0n));
           setAmp(a.exposure > 0n ? a : null);
           setSupplied(lent);
-          setBuffer(buffer);
+          setBuffer(buf);
+          setLoaded(true);
         }
       } catch (e) {
         console.error('xlayer portfolio', e);
       }
     })();
     return () => { alive = false; };
-  }, [address, tick, markets]);
+  }, [address, tick]);
 
   const wallet = proto?.usdg ?? 0n;
+  // The USDG row comes from another hook, so wait for that one too rather than
+  // paint a wallet of zero next to real positions.
+  const ready = loaded && !!proto;
   // What the wallet would be worth if everything were unwound right now: the
   // stock at the oracle, plus the vault buffer behind it, less what is owed.
   const netWorth =
@@ -139,7 +150,9 @@ export default function XLayerPortfolioPage() {
           <>
             <div className="mt-6 rounded-2xl bg-[#fdfaf1] p-6 shadow-[0_1px_3px_rgba(20,50,35,0.06),0_10px_30px_rgba(20,50,35,0.09)]">
               <div className="text-[12px] uppercase tracking-wider text-fg-muted">Net worth</div>
-              <div className="text-[34px] font-semibold tabular-nums text-fg">{usd(netWorth)}</div>
+              <div className="text-[34px] font-semibold tabular-nums text-fg">
+                {ready ? usd(netWorth) : <span className="text-fg-muted/40">$0.00</span>}
+              </div>
               <a
                 href={`${EXPLORER}/address/${address}`}
                 target="_blank"
@@ -150,7 +163,7 @@ export default function XLayerPortfolioPage() {
               </a>
             </div>
 
-            <div className="mt-4 space-y-3">
+            <div className={`mt-4 space-y-3 transition-opacity duration-200 ${ready ? 'opacity-100' : 'opacity-0'}`}>
               {stocks.map((r) => (
                 <Row
                   key={r.key}
@@ -224,7 +237,6 @@ function Row({
   return (
     <Link
       href={href}
-      prefetch={false}
       className="flex items-center gap-4 rounded-2xl bg-[#fdfaf1] px-5 py-4 shadow-[0_1px_3px_rgba(20,50,35,0.06)]"
     >
       <TokenIcon symbol={icon} size={36} />

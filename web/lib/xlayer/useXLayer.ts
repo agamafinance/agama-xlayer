@@ -113,6 +113,19 @@ export function useTick(everyMs = 12000): [number, () => void] {
   return [tick, bumpNow];
 }
 
+let bases: Promise<Record<string, Address>> | undefined;
+
+/// The base xStock behind each wrapper, read once per page load.
+///
+/// The deployment file only carries the wrappers, and `asset()` cannot change,
+/// so asking the chain on every render was a round trip spent on a constant.
+export function baseTokens(): Promise<Record<string, Address>> {
+  bases ??= Promise.all(STOCKS.map((st) => pub.readContract({
+    address: TOKENS[st.wrapper], abi: erc20Abi, functionName: 'asset',
+  }) as Promise<Address>)).then((out) => Object.fromEntries(STOCKS.map((st, i) => [st.key, out[i]])));
+  return bases;
+}
+
 export function useXLayerMarkets(address?: Address) {
   const [markets, setMarkets] = useState<Market[]>([]);
   const [tick, setTick] = useState(0);

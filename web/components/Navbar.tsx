@@ -98,12 +98,6 @@ export function Navbar() {
         <Link
           key={item.href}
           href={item.href}
-          // Next 16 prefetches route segments with a `next-router-segment-prefetch`
-          // header. This app is served through a rewrite on app.agama.finance,
-          // which is also a Next app: it matches that header against its own
-          // route tree first and answers 404. Clicking still does a client side
-          // transition, it just is not warmed up in advance.
-          prefetch={false}
           className={clsx(
             'flex items-center rounded-full text-white transition-colors',
             mobile ? 'h-7 flex-1 justify-center text-[13px]' : 'h-10 px-4 md:px-5 text-[14px]',
@@ -119,7 +113,7 @@ export function Navbar() {
     <>
       <header className="relative z-50 bg-[#1F3D31] md:bg-transparent px-4 md:pl-6 md:pr-[24px] py-3 md:py-[11px]">
         <div className="flex items-center justify-between gap-3">
-          <Link href={current.home} prefetch={false} className="flex items-center group shrink-0">
+          <Link href={current.home} className="flex items-center group shrink-0">
             <img src="/agama-logo-beige.svg" alt="Agama" className="h-[32.8px] w-auto" />
           </Link>
 
