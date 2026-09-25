@@ -80,8 +80,10 @@ export default function XLayerFaucetPage() {
             <Stat label="Asset" value="xStocks" sub="TSLAx, NVDAx, SPYx, AAPLx" />
             <Stat
               label="USDG"
-              value={usdg === undefined ? '—' : Number(formatUnits(usdg, USDG_DECIMALS)).toFixed(2)}
-              sub="Global Dollar, in your wallet"
+              value={!address || usdg === undefined
+                ? '—'
+                : Number(formatUnits(usdg, USDG_DECIMALS)).toFixed(2)}
+              sub={address ? 'Global Dollar, in your wallet' : 'Global Dollar'}
             />
           </div>
         </div>
