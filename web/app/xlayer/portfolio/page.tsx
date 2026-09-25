@@ -109,7 +109,9 @@ export default function XLayerPortfolioPage() {
         if (alive) {
           setStocks(rows.filter((r) => r.amount > 0n || r.debt > 0n));
           setAmp(a.exposure > 0n ? a : null);
-          setSupplied(lent);
+          // A rounding of pool shares survives a full withdrawal; a row that
+          // says 0.00 is noise, not a position.
+          setSupplied(lent > 10_000n ? lent : 0n);
           setBuffer(buf);
           setLoaded(true);
         }

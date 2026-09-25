@@ -30,7 +30,9 @@ export default function XLayerAmplifyPage() {
   const position = useXLayerPosition(address, m?.adapter, m?.wrapper, tick);
 
   const [amount, setAmount] = useState('');
-  const [leverage, setLeverage] = useState(1.3);
+  // Undefined until the market says what it allows: the ceiling is a property
+  // of the collateral, so there is no sensible default before it is known.
+  const [picked, setPicked] = useState<number>();
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
   const [pending, setPending] = useState<'open' | 'close'>('open');
@@ -50,9 +52,10 @@ export default function XLayerAmplifyPage() {
     return Math.floor((1 / (1 - ltv * 0.995)) * 100) / 100;
   }, [m]);
 
-  useEffect(() => {
-    setLeverage((l) => Math.min(Math.max(l, 1.1), maxLeverage));
-  }, [maxLeverage]);
+  // Most of the way to the ceiling, which is what someone opening a leveraged
+  // position came for, and still short of the edge. A slider the user has moved
+  // is theirs; it only gets clamped if the market they switch to allows less.
+  const leverage = Math.min(picked ?? Math.max(1.1, Math.floor(maxLeverage * 90) / 100), maxLeverage);
 
   const amt = useMemo(() => {
     try {
@@ -216,7 +219,7 @@ export default function XLayerAmplifyPage() {
                 </div>
                 <input
                   type="range" min={1.1} max={maxLeverage} step={0.01} value={leverage}
-                  onChange={(e) => setLeverage(Number(e.target.value))}
+                  onChange={(e) => setPicked(Number(e.target.value))}
                   className="mt-3 w-full accent-[#254839]"
                 />
                 <div className="mt-1 flex justify-between text-[11px] text-fg-muted">
