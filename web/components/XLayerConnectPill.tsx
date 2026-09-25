@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 import AnimatedButton from './AnimatedButton';
-import { availableWallets, WALLETS, type FoundWallet } from '@/lib/xlayer/useXLayer';
+import { askWalletsToAnnounce, availableWallets, WALLETS, type FoundWallet } from '@/lib/xlayer/useXLayer';
 import { useXLayerWallet } from '@/lib/xlayer/WalletProvider';
 
 // Same pill as the other networks: dark-green AnimatedButton, address shortened
@@ -23,18 +23,28 @@ export function XLayerConnectPill() {
   const { address, connect, disconnect } = useXLayerWallet();
   const [open, setOpen] = useState(false);
   const [found, setFound] = useState<FoundWallet[]>([]);
+  const [trouble, setTrouble] = useState('');
   const box = useRef<HTMLDivElement>(null);
 
-  // Wallets announce themselves a tick after the page loads, so the list is
-  // read when the menu opens rather than on mount.
+  // An announcement can land at any time, so the list is rebuilt on every one
+  // of them rather than read once. Reading it once was how a wallet that
+  // finished injecting late ended up offered as "Install".
   useEffect(() => {
     if (!open) return;
-    setFound(availableWallets());
+    const refresh = () => setFound(availableWallets());
+    refresh();
+    askWalletsToAnnounce();
+    window.addEventListener('eip6963:announceProvider', refresh);
+    const late = setTimeout(refresh, 400);
     const onAway = (e: MouseEvent) => {
       if (box.current && !box.current.contains(e.target as Node)) setOpen(false);
     };
     document.addEventListener('mousedown', onAway);
-    return () => document.removeEventListener('mousedown', onAway);
+    return () => {
+      window.removeEventListener('eip6963:announceProvider', refresh);
+      clearTimeout(late);
+      document.removeEventListener('mousedown', onAway);
+    };
   }, [open]);
 
   if (address) {
@@ -51,8 +61,16 @@ export function XLayerConnectPill() {
   }
 
   const pick = async (id: string) => {
-    setOpen(false);
-    await connect(id);
+    setTrouble('');
+    try {
+      await connect(id);
+      setOpen(false);
+    } catch (e: unknown) {
+      // Whatever the wallet said. Closing the menu on a failure would leave
+      // someone clicking a button that looks like it did nothing.
+      const raw = e instanceof Error ? e.message : String(e);
+      setTrouble(/rejected|denied/i.test(raw) ? 'Cancelled in the wallet' : raw.split('\n')[0].slice(0, 90));
+    }
   };
 
   return (
@@ -90,6 +108,8 @@ export function XLayerConnectPill() {
               <span className="ml-auto text-[12px]">Install</span>
             </a>
           ))}
+
+          {trouble && <p className="px-3 py-2 text-[12px] text-fg-muted">{trouble}</p>}
         </div>
       )}
     </div>

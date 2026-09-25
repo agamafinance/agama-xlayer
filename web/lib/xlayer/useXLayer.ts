@@ -393,14 +393,22 @@ interface Announced {
 }
 
 /// EIP-6963 announcements, collected as they arrive.
+///
+/// A wallet only announces when asked, and asking once at module load misses
+/// any extension that finished injecting after this file ran. So the request
+/// goes out again whenever anyone reads the list.
 const discovered: Announced[] = [];
 if (typeof window !== 'undefined') {
   window.addEventListener('eip6963:announceProvider', (e) => {
     const d = (e as CustomEvent).detail as Announced;
     if (d?.info?.rdns && !discovered.some((p) => p.info.rdns === d.info.rdns)) discovered.push(d);
   });
-  window.dispatchEvent(new Event('eip6963:requestProvider'));
 }
+
+export function askWalletsToAnnounce() {
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event('eip6963:requestProvider'));
+}
+askWalletsToAnnounce();
 
 export interface FoundWallet extends WalletKind {
   provider: any;
@@ -413,12 +421,32 @@ export function availableWallets(): FoundWallet[] {
   if (typeof window === 'undefined') return [];
   const w = window as any;
   const out: FoundWallet[] = [];
+  const claimed = new Set<string>();
+
+  // The three we name, in the order we offer them.
   for (const kind of WALLETS) {
     const announced = discovered.find(
-      (p) => kind.rdns.includes(p.info.rdns) || p.info.name?.toLowerCase() === kind.name.toLowerCase(),
+      (p) => kind.rdns.includes(p.info.rdns)
+        || p.info.name?.toLowerCase().includes(kind.name.toLowerCase()),
     );
     const provider = announced?.provider ?? kind.legacy?.(w);
-    if (provider) out.push({ ...kind, provider, icon: announced?.info.icon });
+    if (!provider) continue;
+    if (announced) claimed.add(announced.info.rdns);
+    out.push({ ...kind, provider, icon: announced?.info.icon });
+  }
+
+  // And anything else that announced itself. Someone who has a wallet we never
+  // thought of has it installed, which is the only thing that matters here.
+  for (const a of discovered) {
+    if (claimed.has(a.info.rdns)) continue;
+    out.push({
+      id: a.info.rdns,
+      name: a.info.name || a.info.rdns,
+      rdns: [a.info.rdns],
+      download: '',
+      provider: a.provider,
+      icon: a.info.icon,
+    });
   }
   return out;
 }
