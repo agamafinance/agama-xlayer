@@ -1,10 +1,12 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { createPublicClient, createWalletClient, custom, encodeFunctionData, http, type Address } from 'viem';
+import {
+  createPublicClient, createWalletClient, custom, encodeFunctionData, fallback, http, type Address,
+} from 'viem';
 
 import {
-  ADAPTERS, ADDR, AG_PER_USDG, CHAIN_ID_HEX, RAY, STOCKS, TARGET_VAULT_APY_RAY, TOKENS,
+  ADAPTERS, ADDR, AG_PER_USDG, CHAIN_ID_HEX, RAY, READ_RPCS, STOCKS, TARGET_VAULT_APY_RAY, TOKENS,
   USDG_DECIMALS, xLayerTestnet, type Stock,
 } from './config';
 import {
@@ -14,7 +16,12 @@ import {
 
 export const pub = createPublicClient({
   chain: xLayerTestnet,
-  transport: http(),
+  // Ranked by measured latency, and any endpoint that starts erroring is
+  // dropped for the next call. Reads only: a write goes through the wallet's
+  // own provider.
+  transport: fallback(READ_RPCS.map((url) => http(url)), {
+    rank: { interval: 30_000, sampleCount: 3 },
+  }),
   // Every market read goes out as part of one Multicall3 call instead of on
   // its own. Four markets is about thirty reads a refresh, which a public RPC
   // answers unevenly.
@@ -140,18 +147,27 @@ export function useXLayerMarkets(address?: Address) {
     let alive = true;
     (async () => {
       try {
+        // Everything in one batch, so the page is one round trip to the RPC
+        // rather than three: awaiting the balances after the risk knobs, and
+        // the share rate after the price, is what made it arrive in pieces.
+        const bases = await baseTokens();
         const out = await Promise.all(
           STOCKS.map(async (stock): Promise<Market> => {
             const adapter = ADAPTERS[stock.key];
             const wrapper = TOKENS[stock.wrapper];
-            const [feed, maxLtv, lt, baseLt, borrowAllowed, wrapperPrice, base] = await Promise.all([
+            const base = bases[stock.key];
+            const [
+              feed, maxLtv, lt, baseLt, borrowAllowed, wrapperPrice, perShare, balance, baseBalance,
+            ] = await Promise.all([
               pub.readContract({ address: ADDR.oracle, abi: stockOracleAbi, functionName: 'feed', args: [stock.ticker] }),
               pub.readContract({ address: adapter, abi: xStockAdapterAbi, functionName: 'MAX_LTV' }),
               pub.readContract({ address: adapter, abi: xStockAdapterAbi, functionName: 'LIQUIDATION_THRESHOLD' }),
               pub.readContract({ address: adapter, abi: xStockAdapterAbi, functionName: 'BASE_LIQUIDATION_THRESHOLD' }),
               pub.readContract({ address: adapter, abi: xStockAdapterAbi, functionName: 'borrowAllowed' }).catch(() => false),
               pub.readContract({ address: adapter, abi: xStockAdapterAbi, functionName: 'wrapperPrice' }).catch(() => 0n),
-              pub.readContract({ address: wrapper, abi: erc20Abi, functionName: 'asset' }).catch(() => undefined),
+              pub.readContract({ address: wrapper, abi: erc20Abi, functionName: 'convertToAssets', args: [10n ** 18n] }).catch(() => 10n ** 18n),
+              address ? pub.readContract({ address: wrapper, abi: erc20Abi, functionName: 'balanceOf', args: [address] }) : Promise.resolve(0n),
+              address && base ? pub.readContract({ address: base, abi: erc20Abi, functionName: 'balanceOf', args: [address] }) : Promise.resolve(0n),
             ]);
             const f = feed as { price: bigint; observedAt: bigint; marketOpen: boolean };
             // `wrapperPrice` refuses to answer once the feed is past its
@@ -159,21 +175,9 @@ export function useXLayerMarkets(address?: Address) {
             // wrong one for a balance: a portfolio that reads $0.00 because a
             // price is an hour old is worse than one that reads the last price
             // anyone signed. Fall back to the feed and the wrapper's own rate.
-            let price = wrapperPrice as bigint;
-            if (price === 0n && f.price > 0n) {
-              const perShare = (await pub.readContract({
-                address: wrapper, abi: erc20Abi, functionName: 'convertToAssets', args: [10n ** 18n],
-              }).catch(() => 10n ** 18n)) as bigint;
-              price = (f.price * perShare) / 10n ** 30n;
-            }
-            const [balance, baseBalance] = address
-              ? await Promise.all([
-                  pub.readContract({ address: wrapper, abi: erc20Abi, functionName: 'balanceOf', args: [address] }),
-                  base
-                    ? pub.readContract({ address: base as Address, abi: erc20Abi, functionName: 'balanceOf', args: [address] })
-                    : Promise.resolve(0n),
-                ])
-              : [0n, 0n];
+            const price = (wrapperPrice as bigint) > 0n
+              ? wrapperPrice as bigint
+              : (f.price * (perShare as bigint)) / 10n ** 30n;
             return {
               stock, adapter, wrapper,
               price: f.price, observedAt: Number(f.observedAt), marketOpen: f.marketOpen,

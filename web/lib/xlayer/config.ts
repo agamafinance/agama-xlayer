@@ -18,6 +18,16 @@ const RPC_URL =
   process.env.NEXT_PUBLIC_XLAYER_RPC ||
   (IS_FORK ? 'http://127.0.0.1:8545' : 'https://testrpc.xlayer.tech/terigon');
 
+/// Every read endpoint we know for this chain, fastest first.
+///
+/// OKX's public testnet RPC answers a round trip in about 650ms from a browser,
+/// which is what a page made of a dozen reads feels like. The client ranks
+/// these by measured latency and moves off any that starts failing, so this is
+/// a speed-up that cannot become a dependency.
+export const READ_RPCS = IS_FORK || process.env.NEXT_PUBLIC_XLAYER_RPC
+  ? [RPC_URL]
+  : ['https://xlayer-testnet.drpc.org', RPC_URL, 'https://xlayertestrpc.okx.com/terigon'];
+
 export const xLayerTestnet = defineChain({
   id: CHAIN_ID,
   name: IS_FORK ? 'X Layer (local fork)' : 'X Layer Testnet',
