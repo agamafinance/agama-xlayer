@@ -98,6 +98,11 @@ export function Navbar() {
         <Link
           key={item.href}
           href={item.href}
+          // Explicit, because the default only warms what a route renders on
+          // the server, and every page here is a client component with no
+          // loading boundary: there was nothing to warm, so the first click on
+          // each tab paid for the payload. Four links, fetched once on idle.
+          prefetch
           className={clsx(
             'flex items-center rounded-full text-white transition-colors',
             mobile ? 'h-7 flex-1 justify-center text-[13px]' : 'h-10 px-4 md:px-5 text-[14px]',
