@@ -83,7 +83,7 @@ flowchart LR
 | `softDeleverage` | HF below 1.15 | repays to HF 1.40 out of the buffer, stock untouched |
 | `autoUnwind` (Amplify) | borrow rate above the vault's measured APY | unwinds to 1x, equity stays with the owner |
 
-All five are permissionless. `scripts/keeper.py` runs them on a timer, but anyone can, and Agama's keeper is one caller among others rather than a privileged one.
+All five are permissionless. `scripts/keeper.py` runs them on a timer, but anyone can, and Agama's keeper is one caller among others rather than a privileged one. Ours runs under `launchd` with `KeepAlive`, because a keeper that dies quietly takes the prices with it: the oracle refuses to quote past its staleness window, and the app then has nothing to price a balance with. The front now falls back to the last signed feed price for display, so a dead keeper freezes the numbers instead of zeroing them.
 
 **The app gives the user no button for any of this.** The position card says the agents are running, names the level being held, shows how much stock they have added since the deposit and what the last action was. Nothing more. A "Rebalance now" button would say that this is a chore the user owns, which is the opposite of the product.
 
