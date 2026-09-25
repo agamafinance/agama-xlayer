@@ -863,6 +863,56 @@ export const amplifyRouterAbi = [
   },
   {
     "type": "function",
+    "name": "closeStock",
+    "inputs": [
+      {
+        "name": "adapter",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "hops",
+        "type": "tuple[]",
+        "internalType": "struct AgamaAccount.Hop[]",
+        "components": [
+          {
+            "name": "amount",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "swapTarget",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "swapSpender",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "swapData",
+            "type": "bytes",
+            "internalType": "bytes"
+          },
+          {
+            "name": "minOut",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      },
+      {
+        "name": "unwrap",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "netApyRay",
     "inputs": [
       {
@@ -917,6 +967,118 @@ export const amplifyRouterAbi = [
         "name": "leverageBps",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "debt",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "openStock",
+    "inputs": [
+      {
+        "name": "adapter",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "stockAmount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "hops",
+        "type": "tuple[]",
+        "internalType": "struct AgamaAccount.Hop[]",
+        "components": [
+          {
+            "name": "amount",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "swapTarget",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "swapSpender",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "swapData",
+            "type": "bytes",
+            "internalType": "bytes"
+          },
+          {
+            "name": "minOut",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "name": "debt",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "openStockWithBase",
+    "inputs": [
+      {
+        "name": "adapter",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "baseAmount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "hops",
+        "type": "tuple[]",
+        "internalType": "struct AgamaAccount.Hop[]",
+        "components": [
+          {
+            "name": "amount",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "swapTarget",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "swapSpender",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "swapData",
+            "type": "bytes",
+            "internalType": "bytes"
+          },
+          {
+            "name": "minOut",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
       }
     ],
     "outputs": [
@@ -1031,6 +1193,56 @@ export const amplifyRouterAbi = [
       },
       {
         "name": "leverageBps",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "debt",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "StockClosed",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "adapter",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "StockOpened",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "adapter",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "stockIn",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -1281,6 +1493,122 @@ export const accountAbi = [
         "name": "leverageBps",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "debt",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "amplifyStockClose",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "stockAdapter",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "hops",
+        "type": "tuple[]",
+        "internalType": "struct AgamaAccount.Hop[]",
+        "components": [
+          {
+            "name": "amount",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "swapTarget",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "swapSpender",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "swapData",
+            "type": "bytes",
+            "internalType": "bytes"
+          },
+          {
+            "name": "minOut",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      },
+      {
+        "name": "unwrap",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "amplifyStockOpen",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "stockAdapter",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "stockAmount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "hops",
+        "type": "tuple[]",
+        "internalType": "struct AgamaAccount.Hop[]",
+        "components": [
+          {
+            "name": "amount",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "swapTarget",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "swapSpender",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "swapData",
+            "type": "bytes",
+            "internalType": "bytes"
+          },
+          {
+            "name": "minOut",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
       }
     ],
     "outputs": [
@@ -1693,6 +2021,56 @@ export const accountAbi = [
   },
   {
     "type": "event",
+    "name": "AmplifyStockClosed",
+    "inputs": [
+      {
+        "name": "adapter",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "hops",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "AmplifyStockOpened",
+    "inputs": [
+      {
+        "name": "adapter",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "stockIn",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "debt",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "hops",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "AutoUnwound",
     "inputs": [
       {
@@ -2012,6 +2390,22 @@ export const accountAbi = [
   {
     "type": "error",
     "name": "TooLittleStockBought",
+    "inputs": [
+      {
+        "name": "got",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "minOut",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "TooLittleUsdgOut",
     "inputs": [
       {
         "name": "got",
@@ -13532,6 +13926,22 @@ export const allErrorsAbi = [
   {
     "type": "error",
     "name": "TooLittleStockBought",
+    "inputs": [
+      {
+        "name": "got",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "minOut",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "TooLittleUsdgOut",
     "inputs": [
       {
         "name": "got",

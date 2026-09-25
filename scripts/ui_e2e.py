@@ -174,10 +174,10 @@ def base_token(wrapper="wTSLAx"):
     return call(DEP["tokens"][wrapper], "asset()(address)").split()[0]
 
 
-def earn_position():
+def earn_position(stock="TSLA"):
     out = call(DEP["contracts"]["earnRouter"],
                "position(address,address)((address,uint256,uint256,uint256,uint256,uint256,uint256,bool,uint256))",
-               ACCOUNT, DEP["adapters"]["TSLA"])
+               ACCOUNT, DEP["adapters"][stock])
     f = [x.split()[0] for x in out.strip("()").split(", ")]
     return {"account": f[0], "collateral": int(f[1]), "value": int(f[2]), "debt": int(f[3])}
 
@@ -405,21 +405,26 @@ async def main():
         ok("Rebalance" not in txt and "Compound" not in txt,
            "no agent button: the user has nothing to press, which is the product")
 
-        step("6. Amplify: open at 2x, then close")
+        step("6. Amplify: loop a stock into more of itself, then unwind")
         await page.get_by_role("link", name="Amplify", exact=True).click()
         await page.wait_for_timeout(6000)
-        loop = card(page, "Open a loop")
-        await fill_amount(loop, "300")
-        await page.wait_for_timeout(1200)
-        await act(page, loop, "Open at", timeout=300)
-        amp = wait_chain(amplify_position, lambda a: a["exposure"] > 0)
-        ok(amp["exposure"] > 300 * 10**6,
-           f"loop open: {amp['exposure'] / 1e6:.2f} USDG of exposure at {amp['leverageBps'] / 10000:.2f}x")
+        # NVDAx, not the TSLAx the Earn step is holding: a loop and an Earn
+        # position on the same market are one position, and this checks the
+        # loop on its own.
+        await page.get_by_role("button", name=re.compile("^NVDAx")).first.click()
+        await page.wait_for_timeout(3000)
+        loop = card(page, re.compile("^Loop "))
+        await fill_amount(loop, "2")
+        await page.wait_for_timeout(1500)
+        await act(page, loop, "Open at", timeout=420)
+        nv = wait_chain(lambda: earn_position("NVDA"), lambda p: p["collateral"] > 0)
+        ok(nv["collateral"] > 2 * 10**18 and nv["debt"] > 0,
+           f"looped 2 NVDAx into {nv['collateral'] / 1e18:.4f}, borrowing {nv['debt'] / 1e6:.2f} USDG")
         await shot(page, "f03-amplify")
-        await act(page, card(page, "Your loop"), "Close to USDG", timeout=300,
-                  settled=lambda: amplify_position()["exposure"] == 0)
-        amp = amplify_position()
-        ok(amp["exposure"] == 0, "loop closed, equity back in USDG")
+        await act(page, card(page, "Your loop"), "Close, sell back", timeout=420,
+                  settled=lambda: earn_position("NVDA")["collateral"] == 0)
+        nv = earn_position("NVDA")
+        ok(nv["collateral"] == 0 and nv["debt"] == 0, "unwound, the stock came back and nothing is owed")
 
         step("7. Lend: supply 100 USDG, then withdraw it")
         # Lend is the lender side of the pool, not one of the two products, so

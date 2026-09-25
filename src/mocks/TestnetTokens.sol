@@ -83,4 +83,21 @@ contract TestDexRouter {
         wrapper.faucet(msg.sender, out);
         emit Swapped(msg.sender, address(wrapper), usdgIn, out);
     }
+
+    /// @notice The other direction, which unwinding a leveraged stock position
+    ///         needs: stock in, tUSDG out, same spread.
+    /// @dev    Mints what it pays rather than holding an inventory, the same
+    ///         way the buy side mints the stock. This is a testnet stand-in for
+    ///         the OKX aggregator, not a market.
+    function sell(TestXStockWrapper wrapper, uint256 stockIn, uint256 priceUsdg6)
+        external
+        returns (uint256 out)
+    {
+        require(priceUsdg6 > 0, "price");
+        IERC20(address(wrapper)).transferFrom(msg.sender, address(this), stockIn);
+        out = (stockIn * priceUsdg6) / 1e18;
+        out = (out * (BPS - spreadBps)) / BPS;
+        USDG.faucet(msg.sender, out);
+        emit Swapped(msg.sender, address(wrapper), out, stockIn);
+    }
 }

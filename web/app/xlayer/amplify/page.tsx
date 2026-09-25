@@ -3,92 +3,127 @@
 import { useEffect, useMemo, useState } from 'react';
 import { formatUnits, parseUnits } from 'viem';
 
-import { ADDR, asset, RAY, TOKENS, USDG_DECIMALS } from '@/lib/xlayer/config';
-import { amplifyRouterAbi } from '@/lib/xlayer/generated/abis';
+import { TokenIcon } from '@/components/icons/TokenIcon';
+import { ADDR, asset, BPS, RAY, STOCK_DECIMALS, USDG_DECIMALS } from '@/lib/xlayer/config';
+import { amplifyRouterAbi, lendingPoolAbi } from '@/lib/xlayer/generated/abis';
+import { planClose, planOpen } from '@/lib/xlayer/loop';
 import {
-  ensureAllowance, pub, send, useAmplifyPosition, useTick, useXLayerProtocol,
+  ensureAllowance, erc20Abi, pub, send, useTick, useXLayerMarkets, useXLayerPosition, useXLayerProtocol,
 } from '@/lib/xlayer/useXLayer';
 import { useXLayerWallet } from '@/lib/xlayer/WalletProvider';
 
 const usd = (v: bigint | undefined) =>
   v === undefined ? '—' : `$${Number(formatUnits(v, USDG_DECIMALS)).toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
+const qty = (v: bigint | undefined, dp = 2) =>
+  v === undefined ? '—' : Number(formatUnits(v, STOCK_DECIMALS)).toFixed(dp);
 const rayPct = (v: bigint | undefined) => (v === undefined ? '—' : `${(Number(v) / Number(RAY) * 100).toFixed(2)}%`);
+const ONE = 10n ** 18n;
 
 export default function XLayerAmplifyPage() {
   const { address, connect } = useXLayerWallet();
   const [tick, bumpTick] = useTick();
   const proto = useXLayerProtocol(address, tick);
-  const pos = useAmplifyPosition(address, tick);
+  const { markets, refresh } = useXLayerMarkets(address);
+
+  const [key, setKey] = useState<string>();
+  const m = markets.find((x) => x.stock.key === key) ?? markets[0];
+  const position = useXLayerPosition(address, m?.adapter, m?.wrapper, tick);
 
   const [amount, setAmount] = useState('');
-  const [leverage, setLeverage] = useState(2);
+  const [leverage, setLeverage] = useState(1.3);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
   const [pending, setPending] = useState<'open' | 'close'>('open');
-  const [netApy, setNetApy] = useState<bigint>();
+  const [minBorrow, setMinBorrow] = useState(0n);
+
+  useEffect(() => {
+    pub.readContract({ address: ADDR.pool, abi: lendingPoolAbi, functionName: 'minBorrowAmount' })
+      .then((v) => setMinBorrow(v as bigint)).catch(() => {});
+  }, []);
+
+  // What the market allows, not what a slider would like to offer. An equity at
+  // a 30% LTV cannot be looped past 1 / (1 - 0.30), and pretending otherwise
+  // would be a slider that ends in a revert.
+  const maxLeverage = useMemo(() => {
+    if (!m || m.maxLtv === 0n) return 1;
+    const ltv = Number(m.maxLtv) / 10_000;
+    return Math.floor((1 / (1 - ltv * 0.995)) * 100) / 100;
+  }, [m]);
+
+  useEffect(() => {
+    setLeverage((l) => Math.min(Math.max(l, 1.1), maxLeverage));
+  }, [maxLeverage]);
 
   const amt = useMemo(() => {
     try {
-      return amount ? parseUnits(amount, USDG_DECIMALS) : 0n;
+      return amount ? parseUnits(amount, STOCK_DECIMALS) : 0n;
     } catch {
       return 0n;
     }
   }, [amount]);
-  const leverageBps = BigInt(Math.round(leverage * 10_000));
 
-  // The router does the maths on chain, so the number on screen is the number
-  // the loop will actually produce.
-  useEffect(() => {
-    if (!proto) return;
-    let alive = true;
-    pub.readContract({
-      address: ADDR.amplifyRouter, abi: amplifyRouterAbi, functionName: 'netApyRay',
-      args: [proto.vaultApy, leverageBps],
-    }).then((v) => { if (alive) setNetApy(v as bigint); }).catch(() => {});
-    return () => { alive = false; };
-  }, [proto, leverageBps]);
+  const held = m?.baseBalance ?? 0n;
+  const debt = position?.debt ?? 0n;
+  const value = position?.collateralValue ?? 0n;
+  const equity = value > debt ? value - debt : 0n;
+  const has = !!position && position.collateral > 0n;
+  const openLeverage = has && equity > 0n ? (Number(value) / Number(equity)) : 0;
 
-  const bump = () => bumpTick();
+  const bump = () => { bumpTick(); refresh(); };
 
   async function open() {
-    if (!address) return;
+    if (!address || !m) return;
     setPending('open');
     setBusy(true);
     try {
+      setStatus('Pricing the loop…');
+      // The deposit is in the base token, which the router wraps on the way in,
+      // so the plan is made in the wrapper shares that will come out of it.
+      const shares = (await pub.readContract({
+        address: m.wrapper, abi: erc20Abi, functionName: 'convertToShares', args: [amt],
+      })) as bigint;
+      const plan = await planOpen(m, shares, leverage, minBorrow);
+
       setStatus('Approving…');
-      await ensureAllowance(address, TOKENS.USDG, ADDR.amplifyRouter, amt);
-      setStatus('Opening the loop…');
-      await send(address, ADDR.amplifyRouter, amplifyRouterAbi, 'open', [amt, leverageBps]);
+      const base = m.base!;
+      await ensureAllowance(address, base, ADDR.amplifyRouter, amt);
+      setStatus(`Looping ${plan.hops.length} time${plan.hops.length === 1 ? '' : 's'}…`);
+      await send(address, ADDR.amplifyRouter, amplifyRouterAbi, 'openStockWithBase',
+        [m.adapter, amt, plan.hops]);
       setStatus('Done');
       setAmount('');
       bump();
     } catch (e: unknown) {
-      setStatus(e instanceof Error ? e.message.split('\n')[0].slice(0, 140) : String(e));
+      setStatus(errorText(e));
     } finally {
       setBusy(false);
     }
   }
 
   async function close() {
-    if (!address) return;
+    if (!address || !m || !position) return;
     setPending('close');
     setBusy(true);
     try {
-      setStatus('Unwinding…');
-      // `true` asks for USDG back rather than vault shares; when the equity is
-      // backing an Earn position the account keeps it as that position's buffer.
-      await send(address, ADDR.amplifyRouter, amplifyRouterAbi, 'close', [true]);
+      setStatus('Pricing the unwind…');
+      const hops = await planClose(m, position.collateral, position.debt, position.liquidationThresholdBps);
+      setStatus(`Selling back, ${hops.length} step${hops.length === 1 ? '' : 's'}…`);
+      await send(address, ADDR.amplifyRouter, amplifyRouterAbi, 'closeStock', [m.adapter, hops, true]);
       setStatus('Done');
       bump();
     } catch (e: unknown) {
-      setStatus(e instanceof Error ? e.message.split('\n')[0].slice(0, 140) : String(e));
+      setStatus(errorText(e));
     } finally {
       setBusy(false);
     }
   }
 
-  const has = !!pos && pos.exposure > 0n;
-  const usdgBal = proto?.usdg ?? 0n;
+  const preview = useMemo(() => {
+    if (!m || amt === 0n) return undefined;
+    const start = (amt * m.wrapperPrice) / ONE;
+    const exposure = (start * BigInt(Math.round(leverage * 10_000))) / BPS;
+    return { start, exposure, borrowed: exposure - start, stock: (amt * BigInt(Math.round(leverage * 100))) / 100n };
+  }, [m, amt, leverage]);
 
   return (
     <>
@@ -99,122 +134,176 @@ export default function XLayerAmplifyPage() {
           </div>
 
           <h1 className="mt-3 text-[34px] md:text-[44px] leading-[1.05] text-fg font-semibold">
-            Amplify the vault,
+            More of the stock,
             <br />
             on one slider
           </h1>
           <p className="mt-4 max-w-[640px] text-[15px] text-fg-muted">
-            Loop the Agama private-credit vault against USDG borrowed on Arrow, up to three times, in a
-            single transaction. If the borrow rate ever climbs above what the vault earns, anyone can
-            unwind the loop back to 1x.
+            Deposit a tokenized stock and the protocol borrows USDG against it, buys more of the same
+            stock, and deposits that too, until the level you asked for. One transaction. How far it can
+            go is the market&apos;s own LTV ceiling, not a number we chose.
           </p>
 
           <div className="mt-7 flex flex-wrap gap-8">
-            <Stat label="Vault APY" value={rayPct(proto?.vaultApy)} sub={proto?.vaultApyIsTarget ? 'Target, not yet measured' : 'Realized'} />
             <Stat label="Borrow APR" value={rayPct(proto?.borrowRate)} sub="USDG, variable" />
-            <Stat label={`Net APY at ${leverage.toFixed(1)}x`} value={rayPct(netApy)} sub="Computed on chain" />
+            <Stat label="Max leverage" value={`${maxLeverage.toFixed(2)}x`} sub={m ? `${m.stock.base} at ${Number(m.maxLtv) / 100}% LTV` : ''} />
+            <Stat label="Your level" value={has ? `${openLeverage.toFixed(2)}x` : '—'} sub={has ? 'Held by the agents' : 'No loop open'} />
           </div>
         </div>
       </section>
 
       <section className="vault-panel relative z-10 rounded-t-[20px] px-6 md:px-24 pt-10 md:pt-14 pb-24">
-        <div className="max-w-[1400px] mx-auto grid gap-5 lg:grid-cols-[1fr_1fr] items-start">
-          <div className="rounded-2xl bg-[#fdfaf1] p-6 shadow-[0_1px_3px_rgba(20,50,35,0.06),0_10px_30px_rgba(20,50,35,0.09)]">
-            <h2 className="text-[17px] font-semibold text-fg">Open a loop</h2>
-
-            <div className="mt-4 rounded-2xl border border-[#254839]/12 bg-white/60 p-4">
-              <div className="flex items-center justify-between text-[12px] text-fg-muted">
-                <span>Amount</span>
-                <button onClick={() => setAmount(formatUnits(usdgBal, USDG_DECIMALS))} className="hover:text-fg">
-                  Balance {Number(formatUnits(usdgBal, USDG_DECIMALS)).toFixed(2)} · Max
-                </button>
-              </div>
-              <div className="mt-1.5 flex items-center justify-between">
-                <input
-                  inputMode="decimal"
-                  placeholder="0.00"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                  className="w-full bg-transparent text-[28px] font-semibold text-fg tabular-nums outline-none placeholder:text-fg-muted/40"
-                />
-                <span className="shrink-0 rounded-full bg-[#254839]/[0.06] px-3 py-1.5 text-[14px] font-medium text-fg">USDG</span>
-              </div>
-            </div>
-
-            <div className="mt-4 rounded-2xl border border-[#254839]/12 bg-white/60 p-4">
-              <div className="flex items-center justify-between text-[12px] text-fg-muted">
-                <span>Leverage</span>
-                <span className="text-fg">{leverage.toFixed(1)}x</span>
-              </div>
-              <input
-                type="range" min={1} max={3} step={0.1} value={leverage}
-                onChange={(e) => setLeverage(Number(e.target.value))}
-                className="mt-3 w-full accent-[#254839]"
-              />
-              <div className="mt-1 flex justify-between text-[11px] text-fg-muted">
-                <span>1x, no loop</span>
-                <span>3x max</span>
-              </div>
-            </div>
-
-            <dl className="mt-4 space-y-2 text-[13px]">
-              <Row label="Exposure" value={amt > 0n ? usd((amt * leverageBps) / 10_000n) : '—'} />
-              <Row label="Borrowed" value={amt > 0n ? usd((amt * (leverageBps - 10_000n)) / 10_000n) : '—'} />
-              <Row label="Net APY" value={rayPct(netApy)} />
-            </dl>
-
-            <button
-              onClick={address ? open : () => connect()}
-              disabled={busy || (!!address && (amt === 0n || amt > usdgBal || leverage <= 1))}
-              className="mt-4 w-full rounded-full bg-[#254839] px-5 py-3.5 text-[15px] font-medium text-[#fdf8ed] transition-colors hover:bg-[#1F3D31] disabled:opacity-45"
-            >
-              {!address ? 'Connect Wallet' : busy ? status || 'Working…' : `Open at ${leverage.toFixed(1)}x`}
-            </button>
-            {status && !busy && pending === 'open' && (
-              <p className="mt-2 text-[12px] text-fg-muted">{status}</p>
-            )}
+        <div className="max-w-[1400px] mx-auto">
+          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+            {markets.map((mk) => (
+              <button
+                key={mk.stock.key}
+                type="button"
+                onClick={() => setKey(mk.stock.key)}
+                className={`rounded-2xl px-5 py-4 text-left transition-colors ${
+                  mk.stock.key === m?.stock.key
+                    ? 'bg-[#254839] text-[#fdf8ed]'
+                    : 'bg-[#fdfaf1] text-fg hover:bg-[#fdfaf1]/70'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <TokenIcon symbol={mk.stock.base} size={22} />
+                  <span className="text-[15px] font-medium">{mk.stock.base}</span>
+                  <span className="ml-auto text-[11px] opacity-60">{mk.stock.name}</span>
+                </div>
+                <div className="mt-2 text-[22px] font-semibold tabular-nums">
+                  {usd(mk.wrapperPrice)}
+                </div>
+                <div className="mt-1 text-[11px] opacity-70">
+                  Up to {(Math.floor((1 / (1 - (Number(mk.maxLtv) / 10_000) * 0.995)) * 100) / 100).toFixed(2)}x
+                </div>
+              </button>
+            ))}
           </div>
 
-          <div className="rounded-2xl bg-[#fdfaf1] p-6 shadow-[0_1px_3px_rgba(20,50,35,0.06),0_10px_30px_rgba(20,50,35,0.09)]">
-            <h2 className="text-[17px] font-semibold text-fg">Your loop</h2>
-            {!has ? (
-              <p className="mt-4 text-[14px] text-fg-muted">
-                No loop open. Pick an amount and a leverage: the vault shares you end up with are the
-                collateral for the USDG that bought them.
+          <div className="mt-5 grid gap-5 lg:grid-cols-[1fr_1fr] items-start">
+            <div className="rounded-2xl bg-[#fdfaf1] p-6 shadow-[0_1px_3px_rgba(20,50,35,0.06),0_10px_30px_rgba(20,50,35,0.09)]">
+              <h2 className="text-[17px] font-semibold text-fg">Loop {m?.stock.base ?? ''}</h2>
+              <p className="mt-1 text-[13px] text-fg-muted">
+                The token an OKX withdrawal sends. Closing hands it back the same way.
               </p>
-            ) : (
-              <>
-                <div className="mt-4 flex flex-wrap gap-8">
-                  <Stat label="Exposure" value={usd(pos!.exposure)} sub={`${(Number(pos!.leverageBps) / 10_000).toFixed(2)}x`} />
-                  <Stat
-                    label="Health factor"
-                    value={pos!.healthFactorRay > 0n ? (Number(pos!.healthFactorRay) / Number(RAY)).toFixed(2) : 'No debt'}
-                  />
+
+              <div className="mt-4 rounded-2xl border border-[#254839]/12 bg-white/60 p-4">
+                <div className="flex items-center justify-between text-[12px] text-fg-muted">
+                  <span>Deposit</span>
+                  <button onClick={() => setAmount(formatUnits(held, STOCK_DECIMALS))} className="hover:text-fg">
+                    Balance {qty(held, 4)} · Max
+                  </button>
                 </div>
-                <dl className="mt-5 space-y-2 text-[13px]">
-                  <Row label="Your equity" value={usd(pos!.equity)} />
-                  <Row label="Debt" value={usd(pos!.debt)} />
-                </dl>
-                <button
-                  onClick={close}
-                  disabled={busy}
-                  className="mt-4 w-full rounded-full border border-[#254839]/25 px-5 py-3.5 text-[15px] font-medium text-fg transition-colors hover:bg-[#254839]/[0.06] disabled:opacity-45"
-                >
-                  Close to USDG
-                </button>
-              </>
-            )}
-            {/* Outside the branch on purpose: a successful close empties this
-                card, and a confirmation that unmounts with the thing it is
-                confirming is no confirmation at all. */}
-            {status && !busy && pending === 'close' && (
-              <p className="mt-3 text-[12px] text-fg-muted">{status}</p>
-            )}
+                <div className="mt-1.5 flex items-center justify-between">
+                  <input
+                    inputMode="decimal"
+                    placeholder="0.00"
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value)}
+                    className="w-full bg-transparent text-[28px] font-semibold text-fg tabular-nums outline-none placeholder:text-fg-muted/40"
+                  />
+                  <span className="shrink-0 rounded-full bg-[#254839]/[0.06] px-3 py-1.5 text-[14px] font-medium text-fg">
+                    {m?.stock.base ?? ''}
+                  </span>
+                </div>
+              </div>
+
+              <div className="mt-4 rounded-2xl border border-[#254839]/12 bg-white/60 p-4">
+                <div className="flex items-center justify-between text-[12px] text-fg-muted">
+                  <span>Leverage</span>
+                  <span className="text-fg">{leverage.toFixed(2)}x</span>
+                </div>
+                <input
+                  type="range" min={1.1} max={maxLeverage} step={0.01} value={leverage}
+                  onChange={(e) => setLeverage(Number(e.target.value))}
+                  className="mt-3 w-full accent-[#254839]"
+                />
+                <div className="mt-1 flex justify-between text-[11px] text-fg-muted">
+                  <span>1.10x</span>
+                  <span>{maxLeverage.toFixed(2)}x, the LTV ceiling</span>
+                </div>
+              </div>
+
+              <dl className="mt-4 space-y-2 text-[13px]">
+                <Row label="Stock you end up with" value={preview ? `${qty(preview.stock, 4)} ${m?.stock.base}` : '—'} />
+                <Row label="Exposure" value={preview ? usd(preview.exposure) : '—'} />
+                <Row label="Borrowed" value={preview ? usd(preview.borrowed) : '—'} />
+              </dl>
+
+              <button
+                onClick={address ? open : () => connect()}
+                disabled={busy || (!!address && (amt === 0n || amt > held || !m?.borrowAllowed))}
+                className="mt-4 w-full rounded-full bg-[#254839] px-5 py-3.5 text-[15px] font-medium text-[#fdf8ed] transition-colors hover:bg-[#1F3D31] disabled:opacity-45"
+              >
+                {!address
+                  ? 'Connect Wallet'
+                  : busy
+                    ? status || 'Working…'
+                    : !m?.borrowAllowed
+                      ? 'Market closed'
+                      : `Open at ${leverage.toFixed(2)}x`}
+              </button>
+              {status && !busy && pending === 'open' && (
+                <p className="mt-2 text-[12px] text-fg-muted">{status}</p>
+              )}
+            </div>
+
+            <div className="rounded-2xl bg-[#fdfaf1] p-6 shadow-[0_1px_3px_rgba(20,50,35,0.06),0_10px_30px_rgba(20,50,35,0.09)]">
+              <h2 className="text-[17px] font-semibold text-fg">Your loop</h2>
+              {!has ? (
+                <p className="mt-4 text-[14px] text-fg-muted">
+                  No loop open on {m?.stock.base ?? 'this stock'}. Deposit some and pick a level: the stock
+                  the loop buys is the collateral for the USDG that bought it.
+                </p>
+              ) : (
+                <>
+                  <div className="mt-4 flex flex-wrap gap-8">
+                    <Stat
+                      label={m?.stock.base ?? 'Stock'}
+                      value={qty(position!.collateralBase, 4)}
+                      sub={`${usd(value)} at the oracle`}
+                    />
+                    <Stat
+                      label="Health factor"
+                      value={position!.healthFactorRay > 0n
+                        ? (Number(position!.healthFactorRay) / Number(RAY)).toFixed(2)
+                        : 'No debt'}
+                      sub={`${openLeverage.toFixed(2)}x`}
+                    />
+                  </div>
+                  <dl className="mt-5 space-y-2 text-[13px]">
+                    <Row label="Your equity" value={usd(equity)} />
+                    <Row label="Debt" value={usd(debt)} />
+                    <Row label="Level the agents hold" value={`${Number(position!.targetLtvBps) / 100}% LTV`} />
+                  </dl>
+                  <button
+                    onClick={close}
+                    disabled={busy}
+                    className="mt-4 w-full rounded-full border border-[#254839]/25 px-5 py-3.5 text-[15px] font-medium text-fg transition-colors hover:bg-[#254839]/[0.06] disabled:opacity-45"
+                  >
+                    Close, sell back and return the stock
+                  </button>
+                </>
+              )}
+              {/* Outside the branch on purpose: a successful close empties this
+                  card, and a confirmation that unmounts with the thing it is
+                  confirming is no confirmation at all. */}
+              {status && !busy && pending === 'close' && (
+                <p className="mt-3 text-[12px] text-fg-muted">{status}</p>
+              )}
+            </div>
           </div>
         </div>
       </section>
     </>
   );
+}
+
+function errorText(e: unknown): string {
+  const raw = e instanceof Error ? e.message : String(e);
+  if (/User rejected|denied/i.test(raw)) return 'Cancelled in the wallet';
+  return raw.split('\n')[0].slice(0, 140);
 }
 
 function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
@@ -231,7 +320,7 @@ function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between">
       <dt className="text-fg-muted">{label}</dt>
-      <dd className="text-fg tabular-nums">{value}</dd>
+      <dd className="tabular-nums text-fg">{value}</dd>
     </div>
   );
 }
