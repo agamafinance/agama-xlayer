@@ -76,11 +76,12 @@ export default function XLayerFaucetPage() {
           </p>
 
           <div className="mt-7 flex flex-wrap gap-8">
-            <Stat label="Network" value="X Layer Testnet" />
-            <Stat label="Asset" value="USDG + xStocks" />
+            <Stat label="Network" value="X Layer Testnet" sub="Chain 1952" />
+            <Stat label="Asset" value="xStocks" sub="TSLAx, NVDAx, SPYx, AAPLx" />
             <Stat
-              label="Your USDG"
+              label="USDG"
               value={usdg === undefined ? '—' : Number(formatUnits(usdg, USDG_DECIMALS)).toFixed(2)}
+              sub="Global Dollar, in your wallet"
             />
           </div>
         </div>
@@ -182,11 +183,12 @@ function MintButton({
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
     <div>
       <div className="text-[12px] uppercase tracking-wider text-fg-muted">{label}</div>
       <div className="text-[26px] font-semibold tabular-nums text-fg">{value}</div>
+      {sub && <div className="text-[12px] text-fg-muted">{sub}</div>}
     </div>
   );
 }
