@@ -174,25 +174,42 @@ def b32(t):
 
 
 def park_keeper():
-    """Stop a keeper on a timer for the length of the run, and put it back.
+    """Stop a keeper for the length of the run, and put it back.
 
-    It acts on the same positions this script is posing: two soft deleverages
-    of one account land on a health factor nobody asked for, and the failure
-    reads like a contract bug rather than two callers doing their job. Putting
-    it back matters just as much: a testnet whose prices nobody refreshes goes
-    stale in an hour and the app stops quoting.
+    It acts on the same positions this script is posing: a soft deleverage and
+    a rebalance landing on one account produce a health factor nobody asked
+    for, and the failure reads like a contract bug rather than two callers each
+    doing their job. Putting it back matters just as much: a testnet whose
+    prices nobody refreshes goes stale in an hour and the app stops quoting.
+
+    It runs under launchd with KeepAlive, so killing the process is not enough,
+    launchd would put it straight back. The tmux path is kept for a keeper
+    started by hand.
     """
     if MODE != "testnet":
         return
-    if subprocess.run(["tmux", "has-session", "-t", "agama-keeper"], capture_output=True).returncode != 0:
+
+    plist = os.path.expanduser("~/Library/LaunchAgents/com.agama.xlayer.keeper.plist")
+    under_launchd = os.path.exists(plist) and subprocess.run(
+        ["launchctl", "list", "com.agama.xlayer.keeper"], capture_output=True).returncode == 0
+    in_tmux = subprocess.run(["tmux", "has-session", "-t", "agama-keeper"],
+                             capture_output=True).returncode == 0
+    if not under_launchd and not in_tmux:
         return
-    subprocess.run(["tmux", "kill-session", "-t", "agama-keeper"], capture_output=True)
+
+    if under_launchd:
+        subprocess.run(["launchctl", "unload", plist], capture_output=True)
+    if in_tmux:
+        subprocess.run(["tmux", "kill-session", "-t", "agama-keeper"], capture_output=True)
     print("   ..  keeper parked for the run, it will be restarted at the end", flush=True)
 
     def restart():
-        subprocess.run(["tmux", "new", "-d", "-s", "agama-keeper",
-                        "./scripts/run-keeper.sh testnet > /tmp/keeper-testnet.log 2>&1"],
-                       cwd=ROOT, capture_output=True)
+        if under_launchd:
+            subprocess.run(["launchctl", "load", plist], capture_output=True)
+        else:
+            subprocess.run(["tmux", "new", "-d", "-s", "agama-keeper",
+                            "./scripts/run-keeper.sh testnet > /tmp/agama-keeper.log 2>&1"],
+                           cwd=ROOT, capture_output=True)
         print("   ..  keeper restarted", flush=True)
 
     atexit.register(restart)
@@ -369,9 +386,24 @@ def part_a():
     # thing CAPO exists to allow.
     live, capped = capo()
     target = 2 * 1_000 * E6 * capped // live
-    ok(target * 97 // 100 <= b["debt"] <= target * 1005 // 1000,
-       f"borrowed {b['debt'] / E6:.2f} USDG on 1,000 deposited, loop target {target / E6:.2f} "
-       f"(2x the deposit at the capped rate, {capped * 100 / live:.2f}% of live)")
+    # 3x is a target, not a promise. What the loop can actually reach is the
+    # pool's ceiling: 70% of the HAIRCUT value of what it holds, which is the
+    # capped value less the adapter's 3%. Once the CAPO ceiling sits far enough
+    # behind the vault, that lands under 2x the deposit and the loop stops
+    # early, correctly. So the check is that it stopped for the right reason,
+    # with less than one minimum borrow left on the table.
+    haircut = num(call(A["VAULT"], "getAssetValue(address,bytes)(uint256)", b["account"], "0x"))
+    max_ltv = num(call(A["VAULT"], "MAX_LTV()(uint256)"))
+    min_borrow = num(call(C["pool"], "minBorrowAmount()(uint256)"))
+    ceiling = haircut * max_ltv // 10_000
+    room = ceiling - b["debt"] if ceiling > b["debt"] else 0
+    reached = b["debt"] >= target * 99 // 100
+    ok(b["debt"] <= target * 1005 // 1000 and (reached or room < min_borrow),
+       f"borrowed {b['debt'] / E6:.2f} USDG on 1,000 deposited, "
+       + ("the 2x target at the capped rate"
+          if reached else
+          f"all the {max_ltv // 100}% ceiling allowed: {room / E6:.2f} USDG of room left, "
+          f"under the {min_borrow / E6:.2f} minimum borrow"))
     fair = (1_000 * E6 + b["debt"]) * capped // live
     ok(abs(b["exposure"] - fair) <= fair // 500,
        f"exposure {b['exposure'] / E6:.2f} USDG, everything in the vault at that same rate, "
