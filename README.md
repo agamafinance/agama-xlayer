@@ -9,13 +9,14 @@
   - and if it ever gets close to trouble, a soft deleverage spends the yield buffer first. **Your stock is never the first thing sold.**
 - **Buy and Earn.** Do not hold the stock yet? One transaction buys it through the OKX Onchain OS DEX aggregator and opens the Earn position with it.
 - **Straight from the OKX app.** Withdrawing a tokenized stock from OKX to X Layer delivers the BASE xStock (TSLAx), not the ERC-4626 wrapper the markets take. `openWithBase` wraps it on the way in and `closeToBase` hands it back, so a position can be opened from an OKX withdrawal and sent straight back to an OKX deposit.
-- **Amplify.** Loop the Agama vault on Arrow up to 3x in one transaction. `net APY = vaultAPY + (L - 1) x (vaultAPY - borrowAPR)`. If the carry turns negative, anyone can unwind the loop back to 1x.
+- **Amplify: more of the stock.** Deposit a tokenized stock and the protocol borrows USDG against it, buys more of the same stock, deposits that too, and goes again, in one transaction. What bounds the leverage is the market's own LTV ceiling rather than a number we chose: a loop at L times carries an LTV of `(L - 1) / L`, so 30% on TSLA and NVDA is 1.43x, 35% on AAPL is 1.54x, and 50% on SPY is 2x. Unwinding is the same series backwards, withdrawing only what the health factor leaves free. The level reached becomes the target the agents hold, so `rebalance` keeps a loop where its owner left it.
+  - Looping the vault instead of the stock is still in the contracts (`amplifyOpen`, `autoUnwind`, `net APY = vaultAPY + (L - 1) x (vaultAPY - borrowAPR)`), and reaches 3x because vault shares carry a far higher LTV than an equity. It is not what the app offers: on a chain whose point here is tokenized equity, the loop belongs on the equity.
 
 Built for OKX Dev Day 2026, track **Build a Market** (tokenized stocks and RWA on X Layer).
 
 **Live app (X Layer testnet):** https://app.agama.finance/xlayer (the "Get test tokens" button mints test USDG and xStocks; test OKB for gas at https://web3.okx.com/xlayer/faucet).
 
-It is not a demo page: the front is the production Agama app, forked whole into `web/`, with X Layer added as one more network beside Stellar, Sui, Starknet, MagicBlock and Arbitrum. Same shell, same design, same connect flow. Open the network menu and switch.
+It is not a demo page: the front is the production Agama app, forked whole into `web/`, with X Layer added as one more network beside Stellar, Sui, Starknet, MagicBlock and Arbitrum. Same shell, same design, same connect flow. The fork is the first commit in this history and everything after it reads as a diff; what this deployment ships is X Layer alone, because the other networks and their SDKs were weight every page here had to carry before it could ask the chain anything. They are still live on app.agama.finance.
 
 ## Why X Layer
 
@@ -69,7 +70,7 @@ flowchart LR
 | `ArrowStabilityPool` | Liquidation backstop (Arrow model). `liquidate` is permissionless. Seized stocks are sold to anyone at the oracle price minus 3% (`buyCollateral`), since X Layer DEX depth for xStocks is a few dollars. Seized vault shares are redeemed with priority. |
 | `RedStoneStockOracle` | The oracle the markets read. Adds the RedStone path on top of the two below: permissionless `pushRedStone`, 3 of 5 signers, median, 8 to 18 decimals, and a refusal to move a price while the keeper has the market marked closed. |
 | `DataStreamsStockOracle` | Stores prices a lending market can read. Verifies Chainlink Data Streams v11 reports on-chain (permissionless) and accepts a bounded keeper relay. Market status aware (24/5), sequencer-uptime check, never falls back to a default price. |
-| `AgamaAccount` | The borrower of record, one clone per user, and where the automation lives. Earn open/close, `rebalance` (anyone: hold the LTV the owner picked, in both directions), `compoundIntoStock` (anyone: turn vault yield above the debt into more stock, only through a router the zap allowlists), `softDeleverage` (anyone, HF < 1.15 -> back to 1.40), Amplify loop and unwind, `autoUnwind` spread guard. Nothing here needs our keeper: it is convenience, not control. |
+| `AgamaAccount` | The borrower of record, one clone per user, and where the automation lives. Earn open/close, `rebalance` (anyone: hold the LTV the owner picked, in both directions), `compoundIntoStock` (anyone: turn vault yield above the debt into more stock, only through a router the zap allowlists), `softDeleverage` (anyone, HF < 1.15 -> back to 1.40), `amplifyStockOpen`/`amplifyStockClose` (the stock loop, one allowlisted swap per hop), the vault loop and its `autoUnwind` spread guard. Nothing here needs our keeper: it is convenience, not control. |
 | `AgamaZapRouter` | Buy and Earn. Calls the OKX DEX aggregator with calldata built off-chain, measures what actually arrived, and opens the Earn position for the buyer. Only governor-allowlisted routers can be called or approved, and the amount bought is checked against the aggregator's `minReceiveAmount`. |
 | `agUSDQueue` / `sagUSD` | The Agama vault on USDG. On X Layer it gains a `PRIORITY_ROLE` for the stability pool and a one-shot **forbidden vault**: the vault can never lend into the pool that accepts its own shares (the Stream xUSD / Elixir loop). |
 
@@ -96,7 +97,7 @@ All five are permissionless. `scripts/keeper.py` runs them on a timer, but anyon
 | wAAPLx | 35% | 45% | 8% | -8 pts |
 | Agama vault shares | 70% | 80% | 5% | none (3% haircut) |
 
-The slider goes from 0 to the market maximum and Earn defaults to 25%. A single stock cannot take the 70% an index-style asset could: earnings gaps of 20% happen, and the weekend buffer has to sit under the liquidation threshold. Amplify is capped at 3x. Rates: 1% base, 6% at 90% utilization.
+The slider goes from 0 to the market maximum and Earn defaults to 25%. A single stock cannot take the 70% an index-style asset could: earnings gaps of 20% happen, and the weekend buffer has to sit under the liquidation threshold. That ceiling is also what caps Amplify: 1.43x on TSLA and NVDA, 1.54x on AAPL, 2x on SPY. Rates: 1% base, 6% at 90% utilization.
 
 ## What was built during the OKX Dev Day build period
 
@@ -120,7 +121,7 @@ What was added on top of the fork: the `xlayer` platform and its network entry, 
 
 ```bash
 forge build
-forge test                         # 73 tests, most on a fork of X Layer mainnet (real USDG, real xStocks)
+forge test                         # 83 tests, most on a fork of X Layer mainnet (real USDG, real xStocks)
 
 # local X Layer mainnet fork with the full stack and real Chainlink prices
 anvil --fork-url https://xlayerrpc.okx.com --chain-id 1961 &
@@ -148,38 +149,38 @@ All 26 contracts are source-verified on the OKLink explorer and match `src/` at 
 
 | Contract | Address |
 |---|---|
-| ArrowLendingPool | [`0xa88A9779B967eB01947D193755dfa307bF3C534C`](https://www.okx.com/web3/explorer/xlayer-test/address/0xa88A9779B967eB01947D193755dfa307bF3C534C) |
-| ArrowStabilityPool | [`0xeB8B9F241e06D7Dd1795349E9110F4838FF93040`](https://www.okx.com/web3/explorer/xlayer-test/address/0xeB8B9F241e06D7Dd1795349E9110F4838FF93040) |
-| RedStoneStockOracle | [`0x5f9585c88c1E4ea8498f2Cdb27926aEcedc5B79E`](https://www.okx.com/web3/explorer/xlayer-test/address/0x5f9585c88c1E4ea8498f2Cdb27926aEcedc5B79E) |
-| ArrowXStockAdapter (TSLA) | [`0x76cB750692b2aE5EDB48d485cd0B472f487Bbb0e`](https://www.okx.com/web3/explorer/xlayer-test/address/0x76cB750692b2aE5EDB48d485cd0B472f487Bbb0e) |
-| ArrowXStockAdapter (NVDA) | [`0xAE9Cc9e033aAbaA49a57513EC8B973Cc0Db397bF`](https://www.okx.com/web3/explorer/xlayer-test/address/0xAE9Cc9e033aAbaA49a57513EC8B973Cc0Db397bF) |
-| ArrowXStockAdapter (SPY) | [`0xf10C83eDb2f286e27aEDfB1df181AdfD5BDb0273`](https://www.okx.com/web3/explorer/xlayer-test/address/0xf10C83eDb2f286e27aEDfB1df181AdfD5BDb0273) |
-| ArrowXStockAdapter (AAPL) | [`0x26FC66DcfD779bc6610B3503691E7Fa9a61dC76D`](https://www.okx.com/web3/explorer/xlayer-test/address/0x26FC66DcfD779bc6610B3503691E7Fa9a61dC76D) |
-| ArrowVaultShareAdapter | [`0xB5ED06Bf7f9fe73fe863673Ef0a5E5a5a5F78839`](https://www.okx.com/web3/explorer/xlayer-test/address/0xB5ED06Bf7f9fe73fe863673Ef0a5E5a5a5F78839) |
-| AgamaEarnRouter | [`0x9483Bf2392c0e0FE1c0aB5E38208305c2d46AC33`](https://www.okx.com/web3/explorer/xlayer-test/address/0x9483Bf2392c0e0FE1c0aB5E38208305c2d46AC33) |
-| AgamaAmplifyRouter | [`0x5351D53EA4C8cbb1DAe11458B0346dD2370F3d36`](https://www.okx.com/web3/explorer/xlayer-test/address/0x5351D53EA4C8cbb1DAe11458B0346dD2370F3d36) |
-| AgamaZapRouter | [`0x110B0e7A243F0E2F10CfA552707A216dE6C477A1`](https://www.okx.com/web3/explorer/xlayer-test/address/0x110B0e7A243F0E2F10CfA552707A216dE6C477A1) |
-| AgamaAccountFactory | [`0xA1b769172b0e6321AEb79DefcB726c3264EC4546`](https://www.okx.com/web3/explorer/xlayer-test/address/0xA1b769172b0e6321AEb79DefcB726c3264EC4546) |
-| agUSDQueue (Agama vault) | [`0x49116E0E8cDB4B172f8E8D4b694bBf76A02Aed80`](https://www.okx.com/web3/explorer/xlayer-test/address/0x49116E0E8cDB4B172f8E8D4b694bBf76A02Aed80) |
-| sagUSD (Agama vault share) | [`0x1ec8da7a5D03E6B549B642fDE9584725F16cd9a0`](https://www.okx.com/web3/explorer/xlayer-test/address/0x1ec8da7a5D03E6B549B642fDE9584725F16cd9a0) |
-| tUSDG (testnet stand-in) | [`0xF12D21E1Ac8bCB2D6f3F2600adA51fEB8CF463C9`](https://www.okx.com/web3/explorer/xlayer-test/address/0xF12D21E1Ac8bCB2D6f3F2600adA51fEB8CF463C9) |
-| wTSLAx (testnet stand-in) | [`0x3be46772d54da6AAB39A9001A35EBaF806f80FEF`](https://www.okx.com/web3/explorer/xlayer-test/address/0x3be46772d54da6AAB39A9001A35EBaF806f80FEF) |
-| TestDexRouter (testnet stand-in) | [`0xD0Cd7414741B223184FEFcb8ae3225C00ADB5265`](https://www.okx.com/web3/explorer/xlayer-test/address/0xD0Cd7414741B223184FEFcb8ae3225C00ADB5265) |
+| ArrowLendingPool | [`0x3F1DA390bbe93916065fB4045ae87c9aC6cf982a`](https://www.okx.com/web3/explorer/xlayer-test/address/0x3F1DA390bbe93916065fB4045ae87c9aC6cf982a) |
+| ArrowStabilityPool | [`0xbf47B15aD3BB283190b9c3dBC987D46597fB0E60`](https://www.okx.com/web3/explorer/xlayer-test/address/0xbf47B15aD3BB283190b9c3dBC987D46597fB0E60) |
+| RedStoneStockOracle | [`0x64859558b89F046FC8dF14F18029AEF44B8061B5`](https://www.okx.com/web3/explorer/xlayer-test/address/0x64859558b89F046FC8dF14F18029AEF44B8061B5) |
+| ArrowXStockAdapter (TSLA) | [`0x6E7351119Fc7bc36885eE2E938524243A897d527`](https://www.okx.com/web3/explorer/xlayer-test/address/0x6E7351119Fc7bc36885eE2E938524243A897d527) |
+| ArrowXStockAdapter (NVDA) | [`0x5891C04e2caCA2A58b8ab7EB2AA2d6e0802E6367`](https://www.okx.com/web3/explorer/xlayer-test/address/0x5891C04e2caCA2A58b8ab7EB2AA2d6e0802E6367) |
+| ArrowXStockAdapter (SPY) | [`0x50f36b7f2644291a4443290ca692741D15eE75b2`](https://www.okx.com/web3/explorer/xlayer-test/address/0x50f36b7f2644291a4443290ca692741D15eE75b2) |
+| ArrowXStockAdapter (AAPL) | [`0x0A117c11279D2A465A8Db23eec4FF782013e9CBE`](https://www.okx.com/web3/explorer/xlayer-test/address/0x0A117c11279D2A465A8Db23eec4FF782013e9CBE) |
+| ArrowVaultShareAdapter | [`0xf1752e118a34539d9F02450f9De8C6Dd40633632`](https://www.okx.com/web3/explorer/xlayer-test/address/0xf1752e118a34539d9F02450f9De8C6Dd40633632) |
+| AgamaEarnRouter | [`0xa82CEae929e6aA6C5831256559cA563A79b62435`](https://www.okx.com/web3/explorer/xlayer-test/address/0xa82CEae929e6aA6C5831256559cA563A79b62435) |
+| AgamaAmplifyRouter | [`0x82a2927CEa9967c0c95fb162D910a2B61ff01d2e`](https://www.okx.com/web3/explorer/xlayer-test/address/0x82a2927CEa9967c0c95fb162D910a2B61ff01d2e) |
+| AgamaZapRouter | [`0xfE5E2Dd9e636a5538A392f3A495697c686bffB91`](https://www.okx.com/web3/explorer/xlayer-test/address/0xfE5E2Dd9e636a5538A392f3A495697c686bffB91) |
+| AgamaAccountFactory | [`0xAFF6627670B0d9A6E65f5BD5Db1AF61e2e5e3F08`](https://www.okx.com/web3/explorer/xlayer-test/address/0xAFF6627670B0d9A6E65f5BD5Db1AF61e2e5e3F08) |
+| agUSDQueue (Agama vault) | [`0xE84fd98f352C1eDB482123B0ACC660D4907f51F3`](https://www.okx.com/web3/explorer/xlayer-test/address/0xE84fd98f352C1eDB482123B0ACC660D4907f51F3) |
+| sagUSD (Agama vault share) | [`0x45Cb842E11A14353344764e6bEbd8701Ec763Ff6`](https://www.okx.com/web3/explorer/xlayer-test/address/0x45Cb842E11A14353344764e6bEbd8701Ec763Ff6) |
+| tUSDG (testnet stand-in) | [`0x29473Eb0e62b9693269C1953c33b6439812F7416`](https://www.okx.com/web3/explorer/xlayer-test/address/0x29473Eb0e62b9693269C1953c33b6439812F7416) |
+| wTSLAx (testnet stand-in) | [`0x18AE580dCE9C411271cc630123EeDEAf16F1E8a6`](https://www.okx.com/web3/explorer/xlayer-test/address/0x18AE580dCE9C411271cc630123EeDEAf16F1E8a6) |
+| TestDexRouter (testnet stand-in) | [`0xD5F3B42c87175b06BF797B7b9F9D24016c27283b`](https://www.okx.com/web3/explorer/xlayer-test/address/0xD5F3B42c87175b06BF797B7b9F9D24016c27283b) |
 
 Full list: [`deployments/1952.json`](deployments/1952.json).
 
 The end-to-end scenario below ran against this deployment with real transactions (`python3 scripts/e2e.py testnet`):
 
 ```
-2. Alice: Earn on 10 wTSLAx at 25% LTV     borrowed 948.90 USDG, HF 1.600, parked in the Agama vault
+2. Alice: Earn on 10 wTSLAx at 25% LTV     borrowed 944.28 USDG, HF 1.600, parked in the Agama vault
 4. Bob: Amplify 1,000 USDG at 3x           exposure 3000.00, debt 2000.00, HF 1.164
 6. TSLA falls 28%                          Alice HF 1.144, Carol HF 0.953
 7. keeper                                  Alice soft-deleveraged to HF 1.400, keeps all 10 wTSLAx
                                            Carol liquidated partially: SP seized 4.615, Carol keeps 5.385
 8. buyer                                   4.615 wTSLAx bought at a 3% discount
-15. Buy and Earn                           300 USDG bought 0.788017 wTSLAx and opened the position, one transaction
-16. agents, the stock rallies              debt 948.90 -> 1138.68 USDG, back at the 25% the user picked
-16. agents, the yield compounds            10.000000 -> 10.189642 wTSLAx, no user action
+15. Buy and Earn                           300 USDG bought 0.791872 wTSLAx and opened the position, one transaction
+16. agents, the stock rallies              debt 944.28 -> 1132.68 USDG, back at the 25% the user picked
+16. agents, the yield compounds            10.000000 -> 10.190638 wTSLAx, no user action
 17. OKX rail                               5 base xStock in, closed back into 5.000000 base xStock
 18. Dave, the lender                       redeemed 1000.000003 USDG for 1,000 supplied
 E2E PASSED
@@ -187,7 +188,7 @@ E2E PASSED
 
 ### X Layer mainnet (chain 196)
 
-Not deployed: the hackathon demo lives on testnet so anyone can try it with the faucet. Mainnet is still where the tests run: the 73 Foundry tests and the same end-to-end scenario execute on a fork of X Layer mainnet against the real USDG, the real Backed wrappers and the real OKX DEX aggregator (`./scripts/fork-reset.sh && python3 scripts/e2e.py fork`, and `scripts/zap_check.py`). `script/Deploy.s.sol` and `scripts/mainnet-deploy.sh` are ready for a guarded launch after the hackathon.
+Not deployed: the hackathon demo lives on testnet so anyone can try it with the faucet. Mainnet is still where the tests run: the 83 Foundry tests and the same end-to-end scenario execute on a fork of X Layer mainnet against the real USDG, the real Backed wrappers and the real OKX DEX aggregator (`./scripts/fork-reset.sh && python3 scripts/e2e.py fork`, and `scripts/zap_check.py`). `script/Deploy.s.sol` and `scripts/mainnet-deploy.sh` are ready for a guarded launch after the hackathon.
 
 ## OKX integrations
 

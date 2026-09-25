@@ -13,7 +13,7 @@ import {
 import { useXLayerWallet } from '@/lib/xlayer/WalletProvider';
 
 const usd = (v: bigint | undefined) =>
-  v === undefined ? '—' : `$${Number(formatUnits(v, USDG_DECIMALS)).toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
+  v === undefined ? '—' : `$${Number(formatUnits(v, USDG_DECIMALS)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const qty = (v: bigint | undefined, dp = 2) =>
   v === undefined ? '—' : Number(formatUnits(v, STOCK_DECIMALS)).toFixed(dp);
 const rayPct = (v: bigint | undefined) => (v === undefined ? '—' : `${(Number(v) / Number(RAY) * 100).toFixed(2)}%`);
