@@ -102,7 +102,9 @@ contract AmplifyStockTest is BaseFork {
             ++n;
         }
         hops = new AgamaAccount.Hop[](n);
-        for (uint256 i; i < n; ++i) hops[i] = tmp[i];
+        for (uint256 i; i < n; ++i) {
+            hops[i] = tmp[i];
+        }
     }
 
     function _open(uint256 stock, uint256 leverageBps) internal returns (uint256 debt) {
@@ -168,7 +170,9 @@ contract AmplifyStockTest is BaseFork {
         d.amplify.closeStock(address(d.tsla), out, false);
 
         assertEq(_collateral(), 0, "nothing pledged");
-        assertEq(d.pool.getPositionScaledDebt(address(d.tsla), address(_account(alice)), ""), 0, "nothing owed");
+        assertEq(
+            d.pool.getPositionScaledDebt(address(d.tsla), address(_account(alice)), ""), 0, "nothing owed"
+        );
         // Ten in, and what the leverage earned or cost, less the spread paid to
         // the venue on the way in and the way out.
         assertGt(wtsla.balanceOf(alice), 9.8e18, "the stock came back");

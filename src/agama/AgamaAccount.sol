@@ -459,7 +459,6 @@ contract AgamaAccount is ReentrancyGuard {
         return USDG.balanceOf(address(this)) + fromShares;
     }
 
-
     // =====================================================================
     //                        SWAPS (shared)
     // =====================================================================
