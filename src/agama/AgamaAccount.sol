@@ -65,6 +65,19 @@ contract AgamaAccount is ReentrancyGuard {
     ///         `minStockOut`: a griefer would simply pass 1.
     uint256 public constant MAX_COMPOUND_SLIPPAGE_BPS = 300;
 
+    /// @notice One hop of a stock loop, with the swap that turns one side into
+    ///         the other. An aggregator quote is built for one exact amount, so
+    ///         a loop needs one quote per hop and the caller brings them all.
+    /// @param amount Opening: USDG to borrow. Closing: wrapper shares to sell.
+    /// @param minOut Opening: minimum wrapped stock. Closing: minimum USDG.
+    struct Hop {
+        uint256 amount;
+        address swapTarget;
+        address swapSpender;
+        bytes swapData;
+        uint256 minOut;
+    }
+
     IArrowPool public immutable POOL;
     IERC20 public immutable USDG;
     IagUSDQueue public immutable QUEUE;
@@ -94,6 +107,8 @@ contract AgamaAccount is ReentrancyGuard {
         address indexed caller, address indexed adapter, uint256 usdgSpent, uint256 stockAdded
     );
     event AmplifyOpened(uint256 equityUsdg, uint256 debt, uint256 pledgedShares, uint256 loops);
+    event AmplifyStockOpened(address indexed adapter, uint256 stockIn, uint256 debt, uint256 hops);
+    event AmplifyStockClosed(address indexed adapter, uint256 hops);
     event AmplifyClosed(uint256 repaid, uint256 sharesOut, uint256 usdgOut, bool keptForEarn);
     event AutoUnwound(address indexed caller, uint256 borrowRateRay, uint256 vaultApyRay);
 
@@ -113,6 +128,7 @@ contract AgamaAccount is ReentrancyGuard {
     error TooLittleStockBought(uint256 got, uint256 minOut);
     error CompoundPriceTooBad(uint256 valueAdded, uint256 floor);
     error InsufficientToRepay(uint256 shortfall);
+    error TooLittleUsdgOut(uint256 got, uint256 minOut);
 
     constructor(IArrowPool pool, IagUSDQueue queue, IERC4626 vault, ArrowVaultShareAdapter vaultAdapter) {
         POOL = pool;
@@ -187,6 +203,13 @@ contract AgamaAccount is ReentrancyGuard {
     ///        That is the token an OKX deposit expects, so a user can send the
     ///        position straight back to the exchange.
     function earnClose(address user, address stockAdapter, bool unwrap) external nonReentrant auth(user) {
+        _earnClose(stockAdapter, unwrap);
+    }
+
+    /// @dev Repay what is left, hand the stock back, sweep the rest. Shared
+    ///      with the stock loop, whose hops bring the debt down to nothing
+    ///      first and then end here.
+    function _earnClose(address stockAdapter, bool unwrap) internal {
         uint256 debt = POOL.getPositionScaledDebt(stockAdapter, address(this), "");
         uint256 repaid;
         if (debt > 0) {
@@ -300,11 +323,6 @@ contract AgamaAccount is ReentrancyGuard {
         bytes calldata swapData,
         uint256 minStockOut
     ) external nonReentrant returns (uint256 stockAdded) {
-        IAllowedSwapTargets zap = IAllowedSwapTargets(IAgamaAccountFactory(factory).zapRouter());
-        if (!zap.allowedTarget(swapTarget) || !zap.allowedSpender(swapSpender)) {
-            revert SwapTargetNotAllowed(swapTarget);
-        }
-
         // Only the surplus over the debt is profit: the rest is the buffer that
         // protects the stock from being liquidated first.
         uint256 debt = POOL.getPositionScaledDebt(stockAdapter, address(this), "");
@@ -317,22 +335,7 @@ contract AgamaAccount is ReentrancyGuard {
         if (USDG.balanceOf(address(this)) < spend) revert NothingToCompound();
 
         IERC20 stock = IERC20(IArrowAdapter(stockAdapter).getAssetToken());
-        uint256 before = stock.balanceOf(address(this));
-        USDG.forceApprove(swapSpender, spend);
-        (bool okCall, bytes memory reason) = swapTarget.call(swapData);
-        if (!okCall) revert SwapFailed(reason);
-        USDG.forceApprove(swapSpender, 0);
-
-        stockAdded = stock.balanceOf(address(this)) - before;
-        if (stockAdded < minStockOut) revert TooLittleStockBought(stockAdded, minStockOut);
-
-        // `minStockOut` comes from whoever called the agent, which is anybody.
-        // The owner's real protection is this: what came back has to be worth,
-        // at the pool's own price, nearly what was spent.
-        uint256 valueAdded = IArrowAdapter(stockAdapter).valueOf(stockAdded);
-        uint256 floor = (spend * (BPS - MAX_COMPOUND_SLIPPAGE_BPS)) / BPS;
-        if (valueAdded < floor) revert CompoundPriceTooBad(valueAdded, floor);
-
+        stockAdded = _buyStock(stockAdapter, spend, swapTarget, swapSpender, swapData, minStockOut);
         stock.forceApprove(stockAdapter, stockAdded);
         POOL.depositAsset(stockAdapter, abi.encode(stockAdded));
         emit CompoundedIntoStock(msg.sender, stockAdapter, spend, stockAdded);
@@ -450,6 +453,150 @@ contract AgamaAccount is ReentrancyGuard {
         uint256 shares = VAULT.balanceOf(address(this));
         uint256 fromShares = shares == 0 ? 0 : VAULT.convertToAssets(shares) / AG_PER_USDG;
         return USDG.balanceOf(address(this)) + fromShares;
+    }
+
+
+    // =====================================================================
+    //                        SWAPS (shared)
+    // =====================================================================
+
+    /// @dev Only a venue the zap router allowlisted, and the result is measured
+    ///      as a balance delta rather than trusted from the call.
+    function _requireAllowedSwap(address target, address spender) internal view {
+        IAllowedSwapTargets zap = IAllowedSwapTargets(IAgamaAccountFactory(factory).zapRouter());
+        if (!zap.allowedTarget(target) || !zap.allowedSpender(spender)) revert SwapTargetNotAllowed(target);
+    }
+
+    /// @dev USDG in the account, stock out and in the account. `minOut` comes
+    ///      from the caller, who for `compoundIntoStock` is anybody, so the
+    ///      owner's real protection is the second check: what came back has to
+    ///      be worth, at the pool's own price, nearly what was spent.
+    function _buyStock(
+        address stockAdapter,
+        uint256 spend,
+        address target,
+        address spender,
+        bytes calldata data,
+        uint256 minOut
+    ) internal returns (uint256 bought) {
+        _requireAllowedSwap(target, spender);
+        IERC20 stock = IERC20(IArrowAdapter(stockAdapter).getAssetToken());
+        uint256 before = stock.balanceOf(address(this));
+        USDG.forceApprove(spender, spend);
+        (bool okCall, bytes memory reason) = target.call(data);
+        if (!okCall) revert SwapFailed(reason);
+        USDG.forceApprove(spender, 0);
+
+        bought = stock.balanceOf(address(this)) - before;
+        if (bought < minOut) revert TooLittleStockBought(bought, minOut);
+        uint256 valueAdded = IArrowAdapter(stockAdapter).valueOf(bought);
+        uint256 floor = (spend * (BPS - MAX_COMPOUND_SLIPPAGE_BPS)) / BPS;
+        if (valueAdded < floor) revert CompoundPriceTooBad(valueAdded, floor);
+    }
+
+    /// @dev The other direction, for unwinding a stock loop. Same two guards:
+    ///      the caller's own floor, and the oracle's, so a bad route cannot
+    ///      dump the collateral.
+    function _sellStock(
+        address stockAdapter,
+        uint256 shares,
+        address target,
+        address spender,
+        bytes calldata data,
+        uint256 minOut
+    ) internal returns (uint256 got) {
+        _requireAllowedSwap(target, spender);
+        IERC20 stock = IERC20(IArrowAdapter(stockAdapter).getAssetToken());
+        uint256 before = USDG.balanceOf(address(this));
+        stock.forceApprove(spender, shares);
+        (bool okCall, bytes memory reason) = target.call(data);
+        if (!okCall) revert SwapFailed(reason);
+        stock.forceApprove(spender, 0);
+
+        got = USDG.balanceOf(address(this)) - before;
+        if (got < minOut) revert TooLittleUsdgOut(got, minOut);
+        uint256 worth = IArrowAdapter(stockAdapter).valueOf(shares);
+        uint256 floor = (worth * (BPS - MAX_COMPOUND_SLIPPAGE_BPS)) / BPS;
+        if (got < floor) revert CompoundPriceTooBad(got, floor);
+    }
+
+    // =====================================================================
+    //                      AMPLIFY ON THE STOCK
+    // =====================================================================
+
+    /// @notice Leveraged stock. Deposit the stock, then borrow USDG against it,
+    ///         buy more of the same stock, deposit that too, and again, for as
+    ///         many hops as the caller brought quotes for.
+    ///
+    ///         What bounds this is not the hop count but the pool: it refuses a
+    ///         borrow that would break the health factor. An equity here carries
+    ///         a 30 to 50% LTV ceiling, so the series converges quickly, on 1.33x
+    ///         for TSLA at a health factor of 1.6 and 1.6x for SPY. A loop that
+    ///         promised more would be promising a higher LTV on a thin market.
+    ///
+    ///         The level reached becomes the target the agents hold, so the same
+    ///         `rebalance` that runs an Earn position keeps this one where the
+    ///         user left it.
+    /// @param stockAmount Wrapped stock already in the account (the router moved it).
+    function amplifyStockOpen(address user, address stockAdapter, uint256 stockAmount, Hop[] calldata hops)
+        external
+        nonReentrant
+        auth(user)
+        returns (uint256 debt)
+    {
+        if (hops.length > MAX_LOOPS) revert LeverageOutOfRange();
+        _ensurePoolPosition();
+        _recordEarnMarket(stockAdapter);
+        IERC20 stock = IERC20(IArrowAdapter(stockAdapter).getAssetToken());
+        if (stockAmount > 0) {
+            stock.forceApprove(stockAdapter, stockAmount);
+            POOL.depositAsset(stockAdapter, abi.encode(stockAmount));
+        }
+
+        for (uint256 i; i < hops.length; ++i) {
+            Hop calldata h = hops[i];
+            POOL.borrow(stockAdapter, "", h.amount);
+            uint256 bought =
+                _buyStock(stockAdapter, h.amount, h.swapTarget, h.swapSpender, h.swapData, h.minOut);
+            stock.forceApprove(stockAdapter, bought);
+            POOL.depositAsset(stockAdapter, abi.encode(bought));
+        }
+
+        debt = POOL.getPositionScaledDebt(stockAdapter, address(this), "");
+        uint256 value = IArrowAdapter(stockAdapter).getAssetValue(address(this), "");
+        targetLtvBps[stockAdapter] = value == 0 ? 0 : (debt * BPS) / value;
+        emit AmplifyStockOpened(stockAdapter, stockAmount, debt, hops.length);
+    }
+
+    /// @notice Unwind it: withdraw stock, sell it, repay, repeat, then hand back
+    ///         whatever the debt did not eat. Each hop withdraws collateral the
+    ///         pool has to agree to release, so the health factor is never
+    ///         broken on the way out.
+    ///
+    ///         If the hops leave debt behind, the close falls back to the Earn
+    ///         path: the vault buffer pays, and if there is none it reverts with
+    ///         the shortfall rather than half unwinding the position.
+    function amplifyStockClose(address user, address stockAdapter, Hop[] calldata hops, bool unwrap)
+        external
+        nonReentrant
+        auth(user)
+    {
+        for (uint256 i; i < hops.length; ++i) {
+            uint256 debt = POOL.getPositionScaledDebt(stockAdapter, address(this), "");
+            if (debt == 0) break;
+            Hop calldata h = hops[i];
+            POOL.withdrawAsset(stockAdapter, abi.encode(h.amount));
+            _sellStock(stockAdapter, h.amount, h.swapTarget, h.swapSpender, h.swapData, h.minOut);
+            uint256 cash = USDG.balanceOf(address(this));
+            uint256 pay = cash < debt ? cash : debt;
+            if (pay > 0) {
+                USDG.forceApprove(address(POOL), pay);
+                POOL.repay(stockAdapter, "", pay);
+            }
+        }
+        targetLtvBps[stockAdapter] = 0;
+        _earnClose(stockAdapter, unwrap);
+        emit AmplifyStockClosed(stockAdapter, hops.length);
     }
 
     // =====================================================================

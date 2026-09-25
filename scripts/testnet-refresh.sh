@@ -30,6 +30,10 @@ if [ "$BAL" -lt "$NEED_WEI" ]; then
 fi
 
 say "stopping the keeper while the addresses move"
+# It runs under launchd with KeepAlive, so killing the process is not enough:
+# launchd would put it straight back, pushing prices to the old oracle.
+PLIST=~/Library/LaunchAgents/com.agama.xlayer.keeper.plist
+launchctl unload "$PLIST" 2>/dev/null || true
 tmux kill-session -t agama-keeper 2>/dev/null || true
 
 say "deploying"
@@ -48,9 +52,10 @@ say "regenerating the front's ABIs and addresses"
 (cd web && node scripts/sync-xlayer.mjs)
 
 say "keeper"
-tmux new -d -s agama-keeper "./scripts/run-keeper.sh testnet > /tmp/keeper-testnet.log 2>&1"
-sleep 20
-tail -3 /tmp/keeper-testnet.log 2>/dev/null || echo "(keeper starting)"
+launchctl load "$PLIST" 2>/dev/null || tmux new -d -s agama-keeper \
+  "./scripts/run-keeper.sh testnet > /tmp/agama-keeper.log 2>&1"
+sleep 25
+tail -3 /tmp/agama-keeper.log 2>/dev/null || echo "(keeper starting)"
 
 cat <<'NEXT'
 
