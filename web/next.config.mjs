@@ -23,6 +23,12 @@ const nextConfig = {
   // so Next does not walk up and pick it.
   outputFileTracingRoot: root,
   turbopack: { root },
+  // Every page here is a client component that reads the chain on mount, so the
+  // server payload is the same shell whichever tab you are on. Without this the
+  // router treats it as dynamic, throws it away immediately and refetches it on
+  // every tab click, which is a round trip in front of a page that has all of
+  // its real data still to fetch.
+  experimental: { staleTimes: { dynamic: 120, static: 300 } },
   async headers() {
     return [
       {
