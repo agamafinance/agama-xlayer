@@ -366,15 +366,12 @@ async def main():
             # bottom of the page rather than under each button, so the balance
             # is the verdict. The stocks are eight transactions, four wrappers
             # and the four base tokens an OKX withdrawal actually sends.
-            body_ = page.locator("body")
-            await act(page, body_, "Mint 5,000 USDG", timeout=300,
-                      settled=lambda: balance(DEP["tokens"]["USDG"]) >= 5000 * 10**6)
-            # All four, not just the first: the page mints them one after the
-            # other, and navigating away on the first balance to land unmounts
-            # the card and leaves the rest unminted.
-            await act(page, body_, "Mint the stocks", timeout=900,
-                      settled=lambda: all(balance(base_token(w)) >= 10 * 10**18
-                                          for w in ("wTSLAx", "wNVDAx", "wSPYx", "wAAPLx")))
+            # One button, one transaction, one signature: Multicall3 does the
+            # five mints in a batch. So the verdict is every balance at once.
+            await act(page, page.locator("body"), "Get the test tokens", timeout=300,
+                      settled=lambda: balance(DEP["tokens"]["USDG"]) >= 5000 * 10**6
+                      and all(balance(base_token(w)) >= 10 * 10**18
+                              for w in ("wTSLAx", "wNVDAx", "wSPYx", "wAAPLx")))
         usdg = balance(DEP["tokens"]["USDG"])
         stocks_held = [balance(base_token(w)) / 1e18 for w in ("wTSLAx", "wNVDAx", "wSPYx", "wAAPLx")]
         ok(usdg >= 5000 * 10**6 and min(stocks_held) >= 10,

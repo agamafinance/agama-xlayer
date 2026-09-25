@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { createPublicClient, createWalletClient, custom, http, type Address } from 'viem';
+import { createPublicClient, createWalletClient, custom, encodeFunctionData, http, type Address } from 'viem';
 
 import {
   ADAPTERS, ADDR, AG_PER_USDG, CHAIN_ID_HEX, RAY, STOCKS, TARGET_VAULT_APY_RAY, TOKENS,
@@ -85,6 +85,8 @@ export interface Protocol {
 }
 
 const ZERO = '0x0000000000000000000000000000000000000000' as Address;
+/// Canonical Multicall3, same address on X Layer as everywhere else.
+const MULTICALL3 = '0xcA11bde05977b3631167028862bE2a173976CA11' as Address;
 
 /// A counter that advances on its own, and that an action can advance early.
 ///
@@ -139,6 +141,18 @@ export function useXLayerMarkets(address?: Address) {
               pub.readContract({ address: wrapper, abi: erc20Abi, functionName: 'asset' }).catch(() => undefined),
             ]);
             const f = feed as { price: bigint; observedAt: bigint; marketOpen: boolean };
+            // `wrapperPrice` refuses to answer once the feed is past its
+            // staleness window, which is the right call for a borrow and the
+            // wrong one for a balance: a portfolio that reads $0.00 because a
+            // price is an hour old is worse than one that reads the last price
+            // anyone signed. Fall back to the feed and the wrapper's own rate.
+            let price = wrapperPrice as bigint;
+            if (price === 0n && f.price > 0n) {
+              const perShare = (await pub.readContract({
+                address: wrapper, abi: erc20Abi, functionName: 'convertToAssets', args: [10n ** 18n],
+              }).catch(() => 10n ** 18n)) as bigint;
+              price = (f.price * perShare) / 10n ** 30n;
+            }
             const [balance, baseBalance] = address
               ? await Promise.all([
                   pub.readContract({ address: wrapper, abi: erc20Abi, functionName: 'balanceOf', args: [address] }),
@@ -154,7 +168,7 @@ export function useXLayerMarkets(address?: Address) {
               maxLtv: maxLtv as bigint,
               liqThreshold: lt as bigint,
               baseLiqThreshold: baseLt as bigint,
-              wrapperPrice: wrapperPrice as bigint,
+              wrapperPrice: price,
               balance: balance as bigint, baseBalance: baseBalance as bigint,
               base: base as Address | undefined,
             };
@@ -484,6 +498,36 @@ export async function ensureAllowance(owner: Address, token: Address, spender: A
 
 export async function faucet(owner: Address, token: Address, amount: bigint) {
   await send(owner, token, erc20Abi, 'faucet', [owner, amount]);
+}
+
+const multicall3Abi = [{
+  type: 'function', name: 'aggregate3', stateMutability: 'payable',
+  inputs: [{
+    name: 'calls', type: 'tuple[]',
+    components: [
+      { name: 'target', type: 'address' },
+      { name: 'allowFailure', type: 'bool' },
+      { name: 'callData', type: 'bytes' },
+    ],
+  }],
+  outputs: [{
+    name: 'returnData', type: 'tuple[]',
+    components: [{ name: 'success', type: 'bool' }, { name: 'returnData', type: 'bytes' }],
+  }],
+}] as const;
+
+/// Every faucet token in one transaction, so the wallet asks once.
+///
+/// `faucet(to, amount)` mints to whoever is named, not to the caller, so
+/// Multicall3 can make all of the calls on the user's behalf and the tokens
+/// still land in the user's wallet. No faucet contract of our own to deploy.
+export async function faucetAll(owner: Address, mints: { token: Address; amount: bigint }[]) {
+  const calls = mints.map(({ token, amount }) => ({
+    target: token,
+    allowFailure: false,
+    callData: encodeFunctionData({ abi: erc20Abi, functionName: 'faucet', args: [owner, amount] }),
+  }));
+  return send(owner, MULTICALL3, multicall3Abi, 'aggregate3', [calls]);
 }
 
 export { erc20Abi };

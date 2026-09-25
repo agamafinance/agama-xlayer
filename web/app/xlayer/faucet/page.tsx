@@ -8,7 +8,7 @@ import { TokenIcon } from '@/components/icons/TokenIcon';
 import { formatUnits, parseUnits, type Address } from 'viem';
 
 import { asset, OKB_FAUCET, STOCKS, TOKENS, USDG_DECIMALS } from '@/lib/xlayer/config';
-import { erc20Abi, faucet, pub, useTick, useXLayerProtocol } from '@/lib/xlayer/useXLayer';
+import { erc20Abi, faucetAll, pub, useTick, useXLayerProtocol } from '@/lib/xlayer/useXLayer';
 import { useXLayerWallet } from '@/lib/xlayer/WalletProvider';
 
 const USDG_AMOUNT = parseUnits('5000', USDG_DECIMALS);
@@ -19,7 +19,7 @@ export default function XLayerFaucetPage() {
   const [tick, bumpTick] = useTick();
   const proto = useXLayerProtocol(address, tick);
   const [copied, setCopied] = useState(false);
-  const [busy, setBusy] = useState<'usdg' | 'stocks' | null>(null);
+  const [busy, setBusy] = useState(false);
   const [note, setNote] = useState('');
 
   const copyAddress = async () => {
@@ -29,46 +29,28 @@ export default function XLayerFaucetPage() {
     setTimeout(() => setCopied(false), 1500);
   };
 
-  async function mintUsdg() {
+  /// One transaction for the lot: Multicall3 makes every `faucet(you, amount)`
+  /// call in a single batch, so the wallet asks to sign once instead of five
+  /// times. The stocks come in the base form, the one an OKX withdrawal
+  /// delivers and the only one the app ever asks for.
+  async function mintEverything() {
     if (!address) return;
-    setBusy('usdg');
+    setBusy(true);
     setNote('');
     try {
-      await faucet(address, TOKENS.USDG, USDG_AMOUNT);
-      setNote('5,000 USDG minted');
+      const bases = await Promise.all(STOCKS.map((s) => pub.readContract({
+        address: TOKENS[s.wrapper], abi: erc20Abi, functionName: 'asset',
+      }) as Promise<Address>));
+      await faucetAll(address, [
+        { token: TOKENS.USDG, amount: USDG_AMOUNT },
+        ...bases.map((token) => ({ token, amount: STOCK_AMOUNT })),
+      ]);
+      setNote('5,000 USDG and 10 of each stock, in one transaction');
       bumpTick();
     } catch (e: unknown) {
       setNote(e instanceof Error ? e.message.split('\n')[0].slice(0, 120) : String(e));
     } finally {
-      setBusy(null);
-    }
-  }
-
-  async function mintStocks() {
-    if (!address) return;
-    setBusy('stocks');
-    setNote('');
-    try {
-      // Each wrapper is an ERC-4626 over a base xStock, the token an OKX
-      // withdrawal delivers. Hand out both so either path is testable.
-      for (const s of STOCKS) {
-        const wrapper = TOKENS[s.wrapper];
-        setNote(`Minting ${s.wrapper}…`);
-        await faucet(address, wrapper, STOCK_AMOUNT);
-        const base = (await pub
-          .readContract({ address: wrapper, abi: erc20Abi, functionName: 'asset' })
-          .catch(() => undefined)) as Address | undefined;
-        if (base) {
-          setNote(`Minting ${s.wrapper.replace(/^w/, '')}…`);
-          await faucet(address, base, STOCK_AMOUNT);
-        }
-      }
-      setNote('10 of each stock minted, wrapped and base');
-      bumpTick();
-    } catch (e: unknown) {
-      setNote(e instanceof Error ? e.message.split('\n')[0].slice(0, 120) : String(e));
-    } finally {
-      setBusy(null);
+      setBusy(false);
     }
   }
 
@@ -88,9 +70,9 @@ export default function XLayerFaucetPage() {
 
           <h1 className="mt-3 text-[34px] md:text-[44px] leading-[1.05] text-fg font-semibold">Get testnet funds</h1>
           <p className="mt-4 max-w-[640px] text-[15px] text-fg-muted">
-            Grab OKB for gas, then mint the stand-in USDG and xStocks. X Layer Testnet carries neither, so
-            these are ours: same decimals, same ERC-4626 wrapper shape, and the Arrow and Agama contracts
-            they meet are the real ones.
+            Grab OKB for gas, then take the stand-in USDG and xStocks in one transaction. X Layer Testnet
+            carries neither, so these are ours: same decimals, same ERC-4626 wrapper shape, and the Arrow
+            and Agama contracts they meet are the real ones.
           </p>
 
           <div className="mt-7 flex flex-wrap gap-8">
@@ -117,28 +99,21 @@ export default function XLayerFaucetPage() {
           </StepRow>
 
           <StepRow
-            icon={<TokenIcon symbol="USDG" size={40} />}
-            title="USDG"
-            blurb="5,000 test USDG, the stablecoin every Arrow market settles in."
+            icon={
+              <div className="flex shrink-0 -space-x-2">
+                <TokenIcon symbol="USDG" size={40} />
+                <TokenIcon symbol="TSLAx" size={40} />
+                <TokenIcon symbol="NVDAx" size={40} />
+              </div>
+            }
+            title="USDG and the four stocks"
+            blurb="5,000 USDG, and 10 each of TSLAx, NVDAx, SPYx and AAPLx in the form an OKX withdrawal delivers. One transaction, one signature."
           >
             <MintButton
-              onClick={address ? mintUsdg : connect}
-              busy={busy === 'usdg'}
-              label={address ? 'Mint 5,000 USDG' : 'Connect a wallet'}
-              disabled={busy !== null}
-            />
-          </StepRow>
-
-          <StepRow
-            icon={<TokenIcon symbol="wTSLAx" size={40} />}
-            title="xStocks"
-            blurb="10 of each: TSLAx, NVDAx, SPYx and AAPLx, in the form an OKX withdrawal delivers and in the wrapped form the markets hold. Eight transactions."
-          >
-            <MintButton
-              onClick={address ? mintStocks : connect}
-              busy={busy === 'stocks'}
-              label={address ? 'Mint the stocks' : 'Connect a wallet'}
-              disabled={busy !== null}
+              onClick={address ? mintEverything : connect}
+              busy={busy}
+              label={address ? 'Get the test tokens' : 'Connect a wallet'}
+              disabled={busy}
             />
           </StepRow>
 

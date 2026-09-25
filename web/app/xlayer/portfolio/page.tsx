@@ -15,7 +15,7 @@ import { useXLayerWallet } from '@/lib/xlayer/WalletProvider';
 
 const usd = (v: bigint) =>
   `$${Number(formatUnits(v, USDG_DECIMALS)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const qty = (v: bigint, dp = 4) => Number(formatUnits(v, STOCK_DECIMALS)).toFixed(dp);
+const qty = (v: bigint, dp = 2) => Number(formatUnits(v, STOCK_DECIMALS)).toFixed(dp);
 
 const ZERO = '0x0000000000000000000000000000000000000000';
 
