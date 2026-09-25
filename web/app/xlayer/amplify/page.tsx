@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { formatUnits, parseUnits } from 'viem';
 
-import { ADDR, RAY, TOKENS, USDG_DECIMALS } from '@/lib/xlayer/config';
+import { ADDR, asset, RAY, TOKENS, USDG_DECIMALS } from '@/lib/xlayer/config';
 import { amplifyRouterAbi } from '@/lib/xlayer/generated/abis';
 import {
   ensureAllowance, pub, send, useAmplifyPosition, useTick, useXLayerProtocol,
@@ -93,7 +93,11 @@ export default function XLayerAmplifyPage() {
   return (
     <>
       <section className="px-6 md:px-24 pt-10 md:pt-14 pb-8">
-        <div className="max-w-[1400px] mx-auto">
+        <div className="max-w-[1400px] mx-auto relative">
+          <div aria-hidden className="pointer-events-none absolute right-0 -top-2 z-20 hidden lg:block">
+            <img src={asset('/logos/coin-pair-amplify.svg')} alt="" className="h-[300px] w-auto" />
+          </div>
+
           <h1 className="mt-3 text-[34px] md:text-[44px] leading-[1.05] text-fg font-semibold">
             Amplify the vault,
             <br />
@@ -160,7 +164,7 @@ export default function XLayerAmplifyPage() {
             </dl>
 
             <button
-              onClick={address ? open : connect}
+              onClick={address ? open : () => connect()}
               disabled={busy || (!!address && (amt === 0n || amt > usdgBal || leverage <= 1))}
               className="mt-4 w-full rounded-full bg-[#254839] px-5 py-3.5 text-[15px] font-medium text-[#fdf8ed] transition-colors hover:bg-[#1F3D31] disabled:opacity-45"
             >

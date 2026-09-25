@@ -1,62 +1,22 @@
 'use client';
 
-import { RainbowKitProvider, lightTheme } from '@rainbow-me/rainbowkit';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { ReactNode, useState } from 'react';
-import { WagmiProvider } from 'wagmi';
+import { ReactNode } from 'react';
 
-import { wagmiConfig } from '@/lib/wagmi';
-import { raylsTestnet } from '@/lib/chain';
-import { NetworkGuard } from '@/components/NetworkGuard';
 import { NetworkProvider } from '@/lib/network/NetworkContext';
-import { StellarProvider } from '@/lib/stellar/StellarContext';
-import { ArbWalletProvider } from '@/lib/arbitrum/WalletProvider';
-import { SuiProviders } from '@/lib/sui/SuiProviders';
-import { RobinhoodWalletProvider } from '@/lib/robinhood/WalletProvider';
-import { StarknetWalletProvider } from '@/lib/starknet/WalletProvider';
-import { SolanaWalletProvider } from '@/lib/magicblock/WalletProvider';
 import { XLayerWalletProvider } from '@/lib/xlayer/WalletProvider';
-import WalletModal from '@/components/magicblock/WalletModal';
 
-import '@rainbow-me/rainbowkit/styles.css';
-
+/// One network, one provider.
+///
+/// The app this is forked from stacks a wallet provider per platform, and with
+/// them wagmi, RainbowKit and the Stellar, Sui, Starknet and Solana SDKs. None
+/// of that is reachable from a deployment that serves only /xlayer, and all of
+/// it was in the bundle every page had to parse before it could ask the chain
+/// anything. The X Layer pages talk to the wallet through a plain EIP-1193
+/// hook, so this is the whole of it.
 export function Providers({ children }: { children: ReactNode }) {
-  const [queryClient] = useState(() => new QueryClient());
-
   return (
     <NetworkProvider>
-      <WagmiProvider config={wagmiConfig}>
-        <QueryClientProvider client={queryClient}>
-          <StellarProvider>
-           <ArbWalletProvider>
-            <SuiProviders>
-             <StarknetWalletProvider>
-             <SolanaWalletProvider>
-             <XLayerWalletProvider>
-             <RobinhoodWalletProvider>
-             <RainbowKitProvider
-              theme={lightTheme({
-                accentColor: '#254839',
-                accentColorForeground: '#fdf8ed',
-                borderRadius: 'medium',
-                fontStack: 'system',
-                overlayBlur: 'small',
-              })}
-              initialChain={raylsTestnet}
-             >
-              <NetworkGuard />
-              <WalletModal />
-              {children}
-             </RainbowKitProvider>
-             </RobinhoodWalletProvider>
-             </XLayerWalletProvider>
-             </SolanaWalletProvider>
-             </StarknetWalletProvider>
-            </SuiProviders>
-           </ArbWalletProvider>
-          </StellarProvider>
-        </QueryClientProvider>
-      </WagmiProvider>
+      <XLayerWalletProvider>{children}</XLayerWalletProvider>
     </NetworkProvider>
   );
 }

@@ -110,7 +110,7 @@ export default function XLayerFaucetPage() {
             blurb="5,000 USDG, and 10 each of TSLAx, NVDAx, SPYx and AAPLx in the form an OKX withdrawal delivers. One transaction, one signature."
           >
             <MintButton
-              onClick={address ? mintEverything : connect}
+              onClick={address ? mintEverything : () => connect()}
               busy={busy}
               label={address ? 'Get the test tokens' : 'Connect a wallet'}
               disabled={busy}
@@ -119,7 +119,7 @@ export default function XLayerFaucetPage() {
 
           <p className="pt-2 text-[12px] text-fg-muted">
             {!address ? (
-              <button type="button" onClick={connect} className="underline hover:text-fg">
+              <button type="button" onClick={() => connect()} className="underline hover:text-fg">
                 Connect a wallet
               </button>
             ) : (

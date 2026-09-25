@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import { encodeFunctionData, formatUnits, parseAbi, parseUnits, type Address } from 'viem';
 
-import { ADDR, BPS, RAY, STOCK_DECIMALS, TOKENS, USDG_DECIMALS } from '@/lib/xlayer/config';
+import { ADDR, asset, BPS, RAY, STOCK_DECIMALS, TOKENS, USDG_DECIMALS } from '@/lib/xlayer/config';
 import { earnRouterAbi, zapRouterAbi } from '@/lib/xlayer/generated/abis';
 import {
   ensureAllowance, send, useTick, useXLayerMarkets, useXLayerPosition, useXLayerProtocol,
@@ -180,6 +180,11 @@ export default function XLayerEarnPage() {
     <>
       <section className="px-6 md:px-24 pt-10 md:pt-14 pb-8">
         <div className="max-w-[1400px] mx-auto relative">
+          {/* The house coin pair, struck with the stocks this page is about. */}
+          <div aria-hidden className="pointer-events-none absolute right-0 -top-2 z-20 hidden lg:block">
+            <img src={asset('/logos/coin-pair-earn.svg')} alt="" className="h-[300px] w-auto" />
+          </div>
+
           <h1 className="mt-3 text-[34px] md:text-[44px] leading-[1.05] text-fg font-semibold">
             Deposit your stock,
             <br />
@@ -283,7 +288,7 @@ export default function XLayerEarnPage() {
               )}
 
               <button
-                onClick={address ? (buying ? buyAndEarn : open) : connect}
+                onClick={address ? (buying ? buyAndEarn : open) : () => connect()}
                 disabled={
                   busy ||
                   (!!address && (amt === 0n || amt > (buying ? (proto?.usdg ?? 0n) : (balance ?? 0n))))

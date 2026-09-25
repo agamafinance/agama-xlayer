@@ -140,7 +140,7 @@ export default function XLayerPortfolioPage() {
             <p className="text-[15px] text-fg-muted">Connect your wallet to view your positions.</p>
             <button
               type="button"
-              onClick={connect}
+              onClick={() => connect()}
               className="mt-4 h-11 rounded-full bg-[#254839] px-6 text-[14px] font-medium text-[#fdf8ed] hover:bg-[#1F3D31]"
             >
               Connect Wallet

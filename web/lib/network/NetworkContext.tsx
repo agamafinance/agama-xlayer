@@ -1,91 +1,24 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { usePathname } from 'next/navigation';
+import { createContext, useContext, ReactNode } from 'react';
 
-export type Platform = 'evm' | 'stellar' | 'arbitrum' | 'sui' | 'robinhood' | 'starknet' | 'magicblock' | 'xlayer';
-
-const KEY = 'agama.platform';
+/// The app this is forked from switches between Stellar, Sui, Starknet,
+/// MagicBlock, Arbitrum and X Layer, and the navbar reads the current one from
+/// here. This deployment carries X Layer alone, so the context is a constant
+/// rather than a choice: the shape is kept so the shared components below it
+/// are the fork's, untouched.
+export type Platform = 'xlayer';
 
 type Ctx = {
   platform: Platform;
   setPlatform: (p: Platform) => void;
 };
 
-const NetworkContext = createContext<Ctx>({ platform: 'evm', setPlatform: () => {} });
+const NetworkContext = createContext<Ctx>({ platform: 'xlayer', setPlatform: () => {} });
 
 export function NetworkProvider({ children }: { children: ReactNode }) {
-  const pathname = usePathname();
-  // The URL decides the platform from the very first (server) render, so the
-  // pre-rendered HTML of /stellar pages never flashes the EVM navbar.
-  const [platform, setPlatformState] = useState<Platform>(
-    pathname?.startsWith('/stellar')
-      ? 'stellar'
-      : pathname?.startsWith('/arbitrum')
-        ? 'arbitrum'
-        : pathname?.startsWith('/sui')
-          ? 'sui'
-        : pathname?.startsWith('/robinhood')
-          ? 'robinhood'
-        : pathname?.startsWith('/starknet')
-          ? 'starknet'
-        : pathname?.startsWith('/magicblock')
-          ? 'magicblock'
-        : pathname?.startsWith('/xlayer')
-          ? 'xlayer'
-          : 'evm'
-  );
-
-  // Hydrate from localStorage on the client — but the URL takes precedence:
-  // a saved "evm" must not override a direct landing on a /stellar or /arbitrum route.
-  useEffect(() => {
-    if (
-      pathname?.startsWith('/stellar') ||
-      pathname?.startsWith('/arbitrum') ||
-      pathname?.startsWith('/sui') ||
-      pathname?.startsWith('/robinhood') ||
-      pathname?.startsWith('/starknet') ||
-      pathname?.startsWith('/magicblock') ||
-      pathname?.startsWith('/xlayer')
-    )
-      return;
-    const saved = window.localStorage.getItem(KEY);
-    if (
-      saved === 'stellar' ||
-      saved === 'evm' ||
-      saved === 'arbitrum' ||
-      saved === 'sui' ||
-      saved === 'robinhood' ||
-      saved === 'starknet' ||
-      saved === 'magicblock' ||
-      saved === 'xlayer'
-    )
-      setPlatformState(saved);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Navigating onto a network route implies that platform.
-  useEffect(() => {
-    if (pathname?.startsWith('/stellar')) setPlatformState('stellar');
-    else if (pathname?.startsWith('/arbitrum')) setPlatformState('arbitrum');
-    else if (pathname?.startsWith('/sui')) setPlatformState('sui');
-    else if (pathname?.startsWith('/robinhood')) setPlatformState('robinhood');
-    else if (pathname?.startsWith('/starknet')) setPlatformState('starknet');
-    else if (pathname?.startsWith('/magicblock')) setPlatformState('magicblock');
-    else if (pathname?.startsWith('/xlayer')) setPlatformState('xlayer');
-  }, [pathname]);
-
-  const setPlatform = (p: Platform) => {
-    setPlatformState(p);
-    try {
-      window.localStorage.setItem(KEY, p);
-    } catch {
-      /* ignore */
-    }
-  };
-
   return (
-    <NetworkContext.Provider value={{ platform, setPlatform }}>
+    <NetworkContext.Provider value={{ platform: 'xlayer', setPlatform: () => {} }}>
       {children}
     </NetworkContext.Provider>
   );

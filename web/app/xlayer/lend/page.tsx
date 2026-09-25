@@ -151,7 +151,7 @@ export default function XLayerLendPage() {
             </div>
 
             <button
-              onClick={address ? submit : connect}
+              onClick={address ? submit : () => connect()}
               disabled={busy || (!!address && (amt === 0n || amt > max))}
               className="mt-4 w-full rounded-full bg-[#254839] px-5 py-3.5 text-[15px] font-medium text-[#fdf8ed] transition-colors hover:bg-[#1F3D31] disabled:opacity-45"
             >

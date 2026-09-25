@@ -334,61 +334,118 @@ export function useAmplifyPosition(address: Address | undefined, tick: number) {
 
 // ---- wallet -----------------------------------------------------------------
 
-/// The OKX wallet, or nothing.
+/// The wallets this page will talk to, in the order it offers them.
 ///
-/// This is an OKX chain and the deposit path starts with a withdrawal from the
-/// OKX app, so OKX Wallet is the wallet this page talks to. Falling back to
-/// `window.ethereum` would connect whichever extension won the injection race:
-/// on a machine with Rabby installed, Rabby answered and offered its own
-/// chooser, which has no OKX in it.
+/// OKX first, because this is an OKX chain and the deposit path starts with a
+/// withdrawal from the OKX app. Rabby and MetaMask next, because plenty of
+/// people testing this have one of those and nothing else.
 ///
-/// It announces itself three ways depending on where it runs, so all three are
-/// checked: its own `window.okxwallet` (extension and the app's in-app
-/// browser), an EIP-6963 announcement, and the flag it sets on a provider when
-/// it is the only one installed.
-const OKX_RDNS = ['com.okex.wallet', 'com.okx.wallet'];
-const OKX_DOWNLOAD = 'https://web3.okx.com/download';
+/// A wallet is found by its EIP-6963 announcement where it makes one, which is
+/// the only way to tell two extensions apart when both are installed: sniffing
+/// `window.ethereum` connects whichever one won the injection race, and its
+/// flags lie (half the wallets on the market set `isMetaMask`).
+export interface WalletKind {
+  id: string;
+  name: string;
+  rdns: string[];
+  download: string;
+  /// Last resort when a wallet makes no announcement: its own global, or the
+  /// flag it sets. Only trusted once the announcements have come up empty.
+  legacy?: (w: any) => any;
+}
+
+export const WALLETS: WalletKind[] = [
+  {
+    id: 'okx',
+    name: 'OKX Wallet',
+    rdns: ['com.okex.wallet', 'com.okx.wallet'],
+    download: 'https://web3.okx.com/download',
+    legacy: (w) => w.okxwallet ?? pickInjected(w, (p) => p.isOkxWallet === true || p.isOKExWallet === true),
+  },
+  {
+    id: 'rabby',
+    name: 'Rabby',
+    rdns: ['io.rabby'],
+    download: 'https://rabby.io/',
+    legacy: (w) => pickInjected(w, (p) => p.isRabby === true),
+  },
+  {
+    id: 'metamask',
+    name: 'MetaMask',
+    rdns: ['io.metamask', 'io.metamask.flask'],
+    download: 'https://metamask.io/download/',
+    // `isMetaMask` on its own proves nothing, so this only answers when no
+    // other wallet has claimed the provider.
+    legacy: (w) => pickInjected(w, (p) => p.isMetaMask === true && !p.isRabby && !p.isOkxWallet),
+  },
+];
+
+function pickInjected(w: any, match: (p: any) => boolean): any {
+  const many: any[] = w.ethereum?.providers ?? [];
+  const inList = many.find(match);
+  if (inList) return inList;
+  return match(w.ethereum) ? w.ethereum : undefined;
+}
+
+interface Announced {
+  info: { rdns: string; name: string; icon?: string };
+  provider: any;
+}
 
 /// EIP-6963 announcements, collected as they arrive.
-const discovered: { info: { rdns: string; name: string }; provider: any }[] = [];
+const discovered: Announced[] = [];
 if (typeof window !== 'undefined') {
   window.addEventListener('eip6963:announceProvider', (e) => {
-    const d = (e as CustomEvent).detail as { info: { rdns: string; name: string }; provider: any };
+    const d = (e as CustomEvent).detail as Announced;
     if (d?.info?.rdns && !discovered.some((p) => p.info.rdns === d.info.rdns)) discovered.push(d);
   });
   window.dispatchEvent(new Event('eip6963:requestProvider'));
+}
+
+export interface FoundWallet extends WalletKind {
+  provider: any;
+  /// The icon the wallet announced, a data URI. Nothing to ship ourselves.
+  icon?: string;
+}
+
+/// Every wallet from the list that is actually installed.
+export function availableWallets(): FoundWallet[] {
+  if (typeof window === 'undefined') return [];
+  const w = window as any;
+  const out: FoundWallet[] = [];
+  for (const kind of WALLETS) {
+    const announced = discovered.find(
+      (p) => kind.rdns.includes(p.info.rdns) || p.info.name?.toLowerCase() === kind.name.toLowerCase(),
+    );
+    const provider = announced?.provider ?? kind.legacy?.(w);
+    if (provider) out.push({ ...kind, provider, icon: announced?.info.icon });
+  }
+  return out;
 }
 
 /// Set once the user has disconnected, so the next page load does not put them
 /// straight back. Without it `eth_accounts` would answer with the account the
 /// wallet still has approved and the disconnect would last until the click.
 const LEFT = 'agama.xlayer.disconnected';
+/// Which wallet was chosen, so a reload talks to the same one and `send` does
+/// not sign through a different extension than the one that connected.
+const PICKED = 'agama.xlayer.wallet';
 
-function isOkx(p: any): boolean {
-  return !!p && (p.isOkxWallet === true || p.isOKExWallet === true);
+function remembered(): string | undefined {
+  try {
+    return window.sessionStorage.getItem(PICKED) ?? undefined;
+  } catch {
+    return undefined;
+  }
 }
 
-function okxProvider(): any {
-  if (typeof window === 'undefined') return undefined;
-  const w = window as unknown as { okxwallet?: any; ethereum?: any };
-  if (w.okxwallet) return w.okxwallet;
-
-  const announced = discovered.find(
-    (p) => OKX_RDNS.includes(p.info.rdns) || /okx/i.test(p.info.name ?? ''),
-  );
-  if (announced) return announced.provider;
-
-  // Some extensions expose every injected provider here when they share the
-  // page; OKX may be one of them without owning `window.ethereum`.
-  const many: any[] = (w.ethereum as any)?.providers ?? [];
-  const inList = many.find(isOkx);
-  if (inList) return inList;
-
-  return isOkx(w.ethereum) ? w.ethereum : undefined;
+/// The provider every call site uses: the one the user picked, or the only one
+/// installed, or nothing.
+function injectedProvider(): any {
+  const found = availableWallets();
+  const id = remembered();
+  return (id && found.find((f) => f.id === id)?.provider) ?? found[0]?.provider;
 }
-
-/// Kept for the call sites that only ever want the one wallet.
-const injectedProvider = okxProvider;
 
 export function useWallet() {
   const [address, setAddress] = useState<Address | undefined>();
@@ -431,12 +488,19 @@ export function useWallet() {
     }
   }, []);
 
-  const connect = useCallback(async () => {
-    const eth = injectedProvider();
-    if (!eth) {
-      window.open(OKX_DOWNLOAD, '_blank');
+  const connect = useCallback(async (walletId?: string) => {
+    const found = availableWallets();
+    if (found.length === 0) {
+      window.open(WALLETS[0].download, '_blank');
       return;
     }
+    const pick = found.find((f) => f.id === walletId) ?? found[0];
+    try {
+      window.sessionStorage.setItem(PICKED, pick.id);
+    } catch {
+      /* ignore */
+    }
+    const eth = pick.provider;
 
     // Switch first, then ask for the account. The other way round shows the
     // connect dialog on whatever chain the wallet happens to be sitting on,
