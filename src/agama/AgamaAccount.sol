@@ -229,7 +229,11 @@ contract AgamaAccount is ReentrancyGuard {
         } else if (held > 0) {
             IERC20(address(wrapper)).safeTransfer(owner, held);
         }
-        _sweepFree();
+        // The buffer is the account's, not this market's. Sweeping it to the
+        // owner while another market still owes USDG would leave that one with
+        // nothing to repay from, and its close would then ask the owner for a
+        // top-up of money they had just been handed.
+        if (!hasEarnDebt()) _sweepFree();
         emit EarnClosed(stockAdapter, repaid, bal);
     }
 

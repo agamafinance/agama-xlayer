@@ -246,6 +246,38 @@ contract AmplifyStockTest is BaseFork {
         d.amplify.closeStock(address(d.tsla), out, false);
     }
 
+    /// Closing one market must not take the buffer another one is relying on.
+    /// The loop's close ends on the Earn path, which used to hand every free
+    /// vault share back to the owner whichever market it was closing.
+    function test_closing_one_market_leaves_the_other_its_buffer() public {
+        // An Earn position on SPY, whose borrow becomes the account's buffer.
+        deal(W_SPYX, alice, 5e18);
+        vm.startPrank(alice);
+        wspy.approve(address(d.earn), 5e18);
+        d.earn.open(address(d.spy), 5e18, 2_500);
+        vm.stopPrank();
+
+        AgamaAccount account = _account(alice);
+        uint256 bufferBefore = account.redeemableUsdg();
+        assertGt(bufferBefore, 0, "SPY borrowed into the buffer");
+
+        // Now a TSLA loop, opened and unwound.
+        _open(10e18, 13_300);
+        uint256 debt = d.pool.getPositionScaledDebt(address(d.tsla), address(_account(alice)), "");
+        uint256 toSell = ((debt + 5e6) * 1e18) / PX;
+        AgamaAccount.Hop[] memory out = new AgamaAccount.Hop[](2);
+        out[0] = _sellHop(toSell / 2);
+        out[1] = _sellHop(toSell - toSell / 2);
+        vm.prank(alice);
+        d.amplify.closeStock(address(d.tsla), out, false);
+
+        assertGt(account.redeemableUsdg(), (bufferBefore * 99) / 100, "SPY still has its buffer");
+        // And SPY can still close on it, which is the point.
+        vm.prank(alice);
+        d.earn.close(address(d.spy));
+        assertGe(wspy.balanceOf(alice), 5e18, "SPY closed on its own buffer");
+    }
+
     /// The OKX rail: the token a withdrawal delivers goes straight in.
     function test_open_from_the_base_token_an_okx_withdrawal_sends() public {
         address base = address(d.tsla.getAssetToken());
