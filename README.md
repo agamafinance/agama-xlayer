@@ -122,6 +122,7 @@ What was added on top of the fork: the `xlayer` platform and its network entry, 
 ```bash
 forge build
 forge test                         # 83 tests, most on a fork of X Layer mainnet (real USDG, real xStocks)
+./scripts/check.sh                 # the five steps CI runs, before pushing
 
 # local X Layer mainnet fork with the full stack and real Chainlink prices
 anvil --fork-url https://xlayerrpc.okx.com --chain-id 1961 &
