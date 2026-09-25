@@ -3,7 +3,9 @@
 import { useEffect, useRef, useState } from 'react';
 
 import AnimatedButton from './AnimatedButton';
-import { askWalletsToAnnounce, availableWallets, WALLETS, type FoundWallet } from '@/lib/xlayer/useXLayer';
+import {
+  askWalletsToAnnounce, availableWallets, errorText, WALLETS, type FoundWallet,
+} from '@/lib/xlayer/useXLayer';
 import { useXLayerWallet } from '@/lib/xlayer/WalletProvider';
 
 // Same pill as the other networks: dark-green AnimatedButton, address shortened
@@ -68,8 +70,7 @@ export function XLayerConnectPill() {
     } catch (e: unknown) {
       // Whatever the wallet said. Closing the menu on a failure would leave
       // someone clicking a button that looks like it did nothing.
-      const raw = e instanceof Error ? e.message : String(e);
-      setTrouble(/rejected|denied/i.test(raw) ? 'Cancelled in the wallet' : raw.split('\n')[0].slice(0, 90));
+      setTrouble(errorText(e));
     }
   };
 

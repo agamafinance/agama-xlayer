@@ -8,7 +8,7 @@ import { ADDR, asset, BPS, RAY, STOCK_DECIMALS, USDG_DECIMALS } from '@/lib/xlay
 import { amplifyRouterAbi, lendingPoolAbi } from '@/lib/xlayer/generated/abis';
 import { planClose, planOpen } from '@/lib/xlayer/loop';
 import {
-  ensureAllowance, erc20Abi, pub, send, useTick, useXLayerMarkets, useXLayerPosition, useXLayerProtocol,
+  ensureAllowance, erc20Abi, errorText, pub, send, useTick, useXLayerMarkets, useXLayerPosition, useXLayerProtocol,
 } from '@/lib/xlayer/useXLayer';
 import { useXLayerWallet } from '@/lib/xlayer/WalletProvider';
 
@@ -301,12 +301,6 @@ export default function XLayerAmplifyPage() {
       </section>
     </>
   );
-}
-
-function errorText(e: unknown): string {
-  const raw = e instanceof Error ? e.message : String(e);
-  if (/User rejected|denied/i.test(raw)) return 'Cancelled in the wallet';
-  return raw.split('\n')[0].slice(0, 140);
 }
 
 function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {

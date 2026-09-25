@@ -6,7 +6,7 @@ import { formatUnits, parseUnits } from 'viem';
 import { ADDR, TOKENS, USDG_DECIMALS } from '@/lib/xlayer/config';
 import { lendingPoolAbi } from '@/lib/xlayer/generated/abis';
 import {
-  ensureAllowance, erc20Abi, pub, send, useTick, useXLayerProtocol,
+  ensureAllowance, erc20Abi, errorText, pub, send, useTick, useXLayerProtocol,
 } from '@/lib/xlayer/useXLayer';
 import { useXLayerWallet } from '@/lib/xlayer/WalletProvider';
 
@@ -83,7 +83,7 @@ export default function XLayerLendPage() {
       setAmount('');
       bumpTick();
     } catch (e: unknown) {
-      setStatus(e instanceof Error ? e.message.split('\n')[0].slice(0, 140) : String(e));
+      setStatus(errorText(e));
     } finally {
       setBusy(false);
     }

@@ -6,7 +6,7 @@ import { encodeFunctionData, formatUnits, parseAbi, parseUnits, type Address } f
 import { ADDR, asset, BPS, RAY, STOCK_DECIMALS, TOKENS, USDG_DECIMALS } from '@/lib/xlayer/config';
 import { earnRouterAbi, zapRouterAbi } from '@/lib/xlayer/generated/abis';
 import {
-  ensureAllowance, send, useTick, useXLayerMarkets, useXLayerPosition, useXLayerProtocol,
+  ensureAllowance, errorText, send, useTick, useXLayerMarkets, useXLayerPosition, useXLayerProtocol,
   type Market,
 } from '@/lib/xlayer/useXLayer';
 import { useXLayerWallet } from '@/lib/xlayer/WalletProvider';
@@ -441,7 +441,3 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
-function errorText(e: unknown): string {
-  const msg = e instanceof Error ? e.message : String(e);
-  return msg.split('\n')[0].slice(0, 140);
-}

@@ -492,30 +492,6 @@ export function useWallet() {
       .catch(() => {});
   }, []);
 
-  const toXLayer = useCallback(async (eth: any) => {
-    try {
-      await eth.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: CHAIN_ID_HEX }] });
-      return true;
-    } catch (e: any) {
-      if (e?.code === 4902) {
-        await eth.request({
-          method: 'wallet_addEthereumChain',
-          params: [{
-            chainId: CHAIN_ID_HEX,
-            chainName: 'X Layer Testnet',
-            nativeCurrency: { name: 'OKB', symbol: 'OKB', decimals: 18 },
-            rpcUrls: xLayerTestnet.rpcUrls.default.http,
-            blockExplorerUrls: [xLayerTestnet.blockExplorers.default.url],
-          }],
-        });
-        return true;
-      }
-      // A locked wallet refuses to switch before it is unlocked. Connecting
-      // first and switching after is the fallback, not the happy path.
-      return false;
-    }
-  }, []);
-
   const connect = useCallback(async (walletId?: string) => {
     const found = availableWallets();
     if (found.length === 0) {
@@ -534,12 +510,12 @@ export function useWallet() {
     // connect dialog on whatever chain the wallet happens to be sitting on,
     // which is how someone approves a connection to X Layer while the wallet
     // says Coston2.
-    await toXLayer(eth);
+    await ensureXLayer(eth);
     const [acc] = await eth.request({ method: 'eth_requestAccounts' });
 
     // And if the wallet was locked a moment ago, it can switch now.
     const on = await eth.request({ method: 'eth_chainId' }).catch(() => undefined);
-    if (on !== CHAIN_ID_HEX) await toXLayer(eth);
+    if (on !== CHAIN_ID_HEX) await ensureXLayer(eth);
 
     try {
       window.sessionStorage.removeItem(LEFT);
@@ -547,7 +523,7 @@ export function useWallet() {
       /* ignore */
     }
     setAddress(acc as Address);
-  }, [toXLayer]);
+  }, []);
 
   useEffect(() => {
     const eth = injectedProvider();
@@ -580,17 +556,71 @@ export function useWallet() {
 
 /// Send one transaction and wait for it, the way every other network page here
 /// does: the wallet client is built on demand so no provider has to be mounted.
+/// Put the wallet on X Layer, adding the chain if it has never heard of it.
+///
+/// Shared by `connect` and by every write: a wallet that was on another chain
+/// when the user pressed a button is the normal case, not the exception, and a
+/// wallet that does not know chain 1952 (anything but OKX's, which ships it)
+/// answers 4902 and needs to be told what it is.
+///
+/// The RPCs handed over are the ones this app measured as working, fastest
+/// first. Giving a wallet only OKX's public endpoint is how Rabby ended up
+/// added to a chain it could not reach.
+export async function ensureXLayer(eth: any): Promise<boolean> {
+  try {
+    const on = await eth.request({ method: 'eth_chainId' }).catch(() => undefined);
+    if (on === CHAIN_ID_HEX) return true;
+    await eth.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: CHAIN_ID_HEX }] });
+    return true;
+  } catch (e: any) {
+    // 4902 is "unknown chain". Some wallets nest it, hence the second look.
+    if (e?.code !== 4902 && e?.data?.originalError?.code !== 4902) return false;
+    try {
+      await eth.request({
+        method: 'wallet_addEthereumChain',
+        params: [{
+          chainId: CHAIN_ID_HEX,
+          chainName: 'X Layer Testnet',
+          nativeCurrency: { name: 'OKB', symbol: 'OKB', decimals: 18 },
+          rpcUrls: READ_RPCS,
+          blockExplorerUrls: [xLayerTestnet.blockExplorers.default.url],
+        }],
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
+/// Whatever went wrong, in words.
+///
+/// Wallets throw plain `{code, message}` objects as often as they throw
+/// Errors, and `String(anObject)` is "[object Object]", which is what the
+/// faucet showed someone whose wallet had refused to switch chain.
+export function errorText(e: unknown): string {
+  const any = e as any;
+  const raw: string =
+    any?.shortMessage
+    || any?.details
+    || any?.data?.message
+    || any?.error?.message
+    || any?.reason
+    || (e instanceof Error ? e.message : '')
+    || (typeof any?.message === 'string' ? any.message : '')
+    || (() => { try { return JSON.stringify(e); } catch { return String(e); } })();
+  if (/user rejected|user denied|rejected the request|4001/i.test(raw)) return 'Cancelled in the wallet';
+  return raw.split('\n')[0].slice(0, 140) || 'Something went wrong';
+}
+
 export async function send(
   from: Address, to: Address, abi: readonly unknown[], functionName: string, args: readonly unknown[],
 ): Promise<`0x${string}`> {
   const eth = injectedProvider();
-  // The wallet may have wandered off to another chain since connecting. Ask it
-  // back before signing, rather than letting viem refuse with a mismatch the
-  // user cannot act on.
-  const on = await eth.request({ method: 'eth_chainId' }).catch(() => undefined);
-  if (on !== CHAIN_ID_HEX) {
-    await eth.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: CHAIN_ID_HEX }] });
-  }
+  // The wallet may have wandered off to another chain since connecting, or
+  // never have been on this one. Ask it over before signing, rather than
+  // letting viem refuse with a mismatch the user cannot act on.
+  if (!(await ensureXLayer(eth))) throw new Error('Switch your wallet to X Layer Testnet to continue');
   const wallet = createWalletClient({ account: from, chain: xLayerTestnet, transport: custom(eth) });
   const hash = await wallet.writeContract({ address: to, abi: abi as never, functionName, args: args as never });
   await pub.waitForTransactionReceipt({ hash });

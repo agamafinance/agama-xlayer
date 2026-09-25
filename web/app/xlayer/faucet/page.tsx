@@ -8,7 +8,7 @@ import { TokenIcon } from '@/components/icons/TokenIcon';
 import { formatUnits, parseUnits, type Address } from 'viem';
 
 import { asset, OKB_FAUCET, STOCKS, TOKENS, USDG_DECIMALS } from '@/lib/xlayer/config';
-import { erc20Abi, faucetAll, pub, useTick, useXLayerProtocol } from '@/lib/xlayer/useXLayer';
+import { erc20Abi, errorText, faucetAll, pub, useTick, useXLayerProtocol } from '@/lib/xlayer/useXLayer';
 import { useXLayerWallet } from '@/lib/xlayer/WalletProvider';
 
 const USDG_AMOUNT = parseUnits('5000', USDG_DECIMALS);
@@ -48,7 +48,7 @@ export default function XLayerFaucetPage() {
       setNote('5,000 USDG and 10 of each stock, in one transaction');
       bumpTick();
     } catch (e: unknown) {
-      setNote(e instanceof Error ? e.message.split('\n')[0].slice(0, 120) : String(e));
+      setNote(errorText(e));
     } finally {
       setBusy(false);
     }
