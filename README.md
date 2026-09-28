@@ -44,8 +44,8 @@ flowchart TB
 
     subgraph price["THE PRICE LAYER (X Layer has no equity feed)"]
         ORACLE["RedStoneStockOracle<br/>3 of 5 signers / session status"]
-        RS["RedStone signed reports"]
-        CL["Chainlink SPY relay<br/>bounded, from Arbitrum"]
+        RS["RedStone signed reports<br/>while the session trades"]
+        CL["Chainlink SPY relay, from Arbitrum<br/>xStock price from Solana, out of session<br/>both bounded on chain"]
     end
 
     AGENTS["Agents<br/>anyone can run them"]
@@ -96,11 +96,12 @@ flowchart TB
 - **Straight from the OKX app.** A withdrawal delivers the base xStock, not the
   ERC-4626 wrapper the markets take. Deposits accept it as is and closing hands
   it back the same way, ready for an OKX deposit.
-- **Open around the clock.** The chain does not keep office hours and neither
-  does this market. What closes is the equity session, and with it the price
-  feed, so out of session the max LTV and the liquidation threshold drop by the
-  same buffer: a position opened on a Saturday sits as far from liquidation as
-  one opened on a Tuesday. Only a stale price stops a borrow.
+- **Open around the clock, on a price that moves.** The share behind an xStock
+  keeps market hours; the token does not. Out of session the keeper relays the
+  token's own price off Solana, where it trades continuously and has depth, so
+  the weekend is priced rather than frozen. If that cannot be read either, the
+  last close is held and the terms tighten by the weekend buffer on both sides
+  at once. Only a stale price stops a borrow, never the clock.
 - **The price layer is part of the build.** X Layer has no equity feed, from
   anyone. RedStone reports verified on-chain, a bounded Chainlink relay for SPY,
   session status, and no fallback price ever.

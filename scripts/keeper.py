@@ -79,6 +79,28 @@ ARB_FEEDS = {
 }
 ARB_HEARTBEAT = 26 * 3600  # 24h heartbeat plus margin
 
+# The xStock itself, on Solana, where it trades around the clock and where it
+# has depth: about 1.4M$ of routable liquidity on TSLAx against a few dollars
+# on X Layer. The share behind it keeps market hours; the token does not, and
+# it does not wait for Monday to price the weekend's news.
+#
+# This is a keeper relay rather than an oracle read because X Layer has
+# neither. Chainlink is the xStocks alliance's official oracle and publishes
+# none of these here, its Data Streams verifier was never initialised on this
+# chain, and the local DEX depth is too thin to read as a price. So the token's
+# own market is relayed in, bounded on-chain by the same 15% per-update
+# deviation cap as the Chainlink SPY feed relayed from Arbitrum. The day an
+# oracle lands on X Layer, this becomes one line pointing at it.
+XSTOCK_MINTS = {
+    "TSLA": "XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB",
+    "NVDA": "Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh",
+    "SPY": "XsoCS1TfEyfFhfvj8EtZ528L3CaKBDBRqRapnBbDF2W",
+    "AAPL": "XsbEhLAtcf6HdfpFZ5xEMdqW8nfAvcsP5bdudRLJzJp",
+}
+JUPITER_PRICE = "https://lite-api.jup.ag/price/v3"
+# Under this much routable USD, a quote is a number rather than a market price.
+MIN_XSTOCK_LIQUIDITY = 100_000
+
 # Chainlink Data Streams v11 feed IDs (US equities, regular hours).
 DS_FEEDS = {
     "TSLA": "0x000b2dbed1640ead18d37338b75e4755630a900649261baf4ed79d9a749be13d",
@@ -212,6 +234,42 @@ def arbitrum_prices():
     return prices
 
 
+
+def xstock_prices():
+    """What the xStocks themselves trade at on Solana, in 1e18 USD.
+
+    Only the ones with real depth behind the quote: a price nobody could fill
+    is not a price, and it is exactly the mistake that reading the X Layer
+    pools would be.
+    """
+    ids = ",".join(XSTOCK_MINTS.values())
+    # Declaring a browser agent, because the gateway answers 403 to the one
+    # urllib sends by default.
+    req = urllib.request.Request(f"{JUPITER_PRICE}?ids={ids}", headers={
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+                      "(KHTML, like Gecko) Chrome/140.0 Safari/537.36",
+        "Accept": "application/json",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            quotes = json.load(r)
+    except Exception as e:
+        log(f"xStock quotes unavailable ({str(e)[:80]})")
+        return {}
+
+    prices = {}
+    for ticker, mint in XSTOCK_MINTS.items():
+        q = quotes.get(mint) or {}
+        usd, depth = q.get("usdPrice"), q.get("liquidity") or 0
+        if not usd:
+            continue
+        if depth < MIN_XSTOCK_LIQUIDITY:
+            log(f"{ticker}: only {depth:,.0f}$ behind the quote, skipped")
+            continue
+        prices[ticker] = int(usd * 1e18)
+    return prices
+
+
 def tick_redstone(dep):
     """Signed RedStone prices, verified on-chain by the oracle."""
     oracle = dep["contracts"]["oracle"]
@@ -258,10 +316,25 @@ def tick_prices(dep):
         send(oracle, "pushReports(bytes[])", "[" + ",".join(reports) + "]", gas=GAS_PRICE_PUSH)
         log("Data Streams: pushed", len(reports), "verified reports")
         return
+    session = market_open_24_5()
+
+    # Out of session the equity feeds stop moving: RedStone keeps publishing,
+    # on a fresh timestamp, the number it published at the last trade. The
+    # xStock itself does not stop, so that is what gets relayed instead, and
+    # the ticker stays OPEN because a live price from a real market is exactly
+    # what "open" is supposed to mean. Freezing at the close is the fallback
+    # for when Solana cannot be read either, not the normal weekend.
+    if not session:
+        tokens = xstock_prices()
+        if tokens:
+            _push_prices(oracle, tokens, is_open=True, source="xStocks on Solana")
+            return
+        log("no xStock quote either, holding the last close")
+
     prices = arbitrum_prices()
     if not prices:
         return
-    is_open = market_open_24_5()
+    is_open = session
     # While the market trades, RedStone signs TSLA, NVDA and AAPL, so the relay
     # only carries SPY. At the close it carries every ticker once, to flip the
     # market status and freeze the last price for the weekend.
@@ -280,21 +353,30 @@ def tick_prices(dep):
                   if t in prices and t not in names and _relay_needed(oracle, t, ts, half)]
     if not names:
         return
+    _push_prices(oracle, {t: prices[t] for t in names}, is_open,
+                 source="Chainlink relay", ts=ts)
+
+
+def _push_prices(oracle, prices, is_open, source, ts=None):
+    """One bounded relay push, whatever the source was."""
+    if not prices:
+        return
+    # Observation time = chain time (a fork's clock may lag the wall clock).
+    if ts is None:
+        ts = first_int(cast("block", "latest", "-f", "timestamp"))
     # The oracle refuses an observation that is not newer than the one it holds,
     # per ticker, so the whole batch has to clear the NEWEST of them. Checking
     # only the first one sends a push that reverts on the second.
-    newest = 0
-    for t in names:
-        f = call(oracle, "feed(bytes32)((uint128,uint64,bool,bool))", b32(t)).strip("()").split(", ")
-        newest = max(newest, int(f[1].split()[0]))
+    newest = max(_feed(oracle, t)["observedAt"] for t in prices)
     if ts <= newest:
         log("prices already current for this block, skipped")
         return
-    tick_arr = "[" + ",".join(b32(t) for t in names) + "]"
-    px_arr = "[" + ",".join(str(prices[t]) for t in names) + "]"
+    tick_arr = "[" + ",".join(b32(t) for t in prices) + "]"
+    px_arr = "[" + ",".join(str(prices[t]) for t in prices) + "]"
     send(oracle, "pushMany(bytes32[],uint256[],uint64,bool)", tick_arr, px_arr, str(ts),
          "true" if is_open else "false", gas=GAS_PRICE_PUSH)
-    log("relay:", {t: round(prices[t] / 1e18, 2) for t in names}, "open" if is_open else "closed")
+    log(f"{source}:", {t: round(p / 1e18, 2) for t, p in prices.items()},
+        "open" if is_open else "frozen at the close")
 
 
 # ---- protection -----------------------------------------------------------------------
