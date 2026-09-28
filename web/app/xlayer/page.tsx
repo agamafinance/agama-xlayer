@@ -214,7 +214,7 @@ export default function XLayerEarnPage() {
                 <h2 className="text-[17px] font-semibold text-fg">Deposit {m?.stock.base ?? ''}</h2>
                 {m && (
                   <span className={m.marketOpen ? 'rounded-full bg-[#254839]/[0.06] px-3 py-1 text-[12px] text-fg' : 'rounded-full bg-[#b4571f]/10 px-3 py-1 text-[12px] text-[#b4571f]'}>
-                    {m.marketOpen ? 'Market open' : 'Session closed, tighter terms'}
+                    {m.marketOpen ? 'Live price' : 'Price frozen'}
                   </span>
                 )}
               </div>
@@ -282,9 +282,10 @@ export default function XLayerEarnPage() {
               </dl>
               {m && !m.marketOpen && canBorrow && (
                 <p className="mt-3 text-[12px] text-fg-muted">
-                  The equity session is shut, so the price stopped moving at the close. You can still
-                  deposit and borrow: the level is tightened to {pct(m.maxLtv)} until it reopens, which
-                  leaves a position opened now the same cushion as one opened on a weekday.
+                  {m.stock.base} is priced at the last trade of the session, and that number will not move
+                  until the next one opens. Deposit and borrow all the same, at
+                  {' '}{pct(m.maxLtv)} instead of the weekday level, which leaves the position the same
+                  distance from liquidation while the price catches up.
                 </p>
               )}
               {!canBorrow && (
@@ -413,14 +414,14 @@ function MarketCards({
           </div>
           <div className="mt-1 flex items-baseline gap-2">
             <span className="text-[22px] font-semibold tabular-nums">{price(m.price)}</span>
-            {/* While the market is closed the price is frozen on purpose, so an
+            {/* Out of session the price is frozen on purpose, so an
                 age would read as staleness. Say which it is. */}
             <span className="text-[11px] opacity-70">
               {m.marketOpen ? ago(m.observedAt) : 'at the close'}
             </span>
           </div>
           <div className="mt-1 text-[11px] opacity-70">
-            Max LTV {pct(m.maxLtv)} · {m.marketOpen ? 'open' : 'closed'}
+            Max LTV {pct(m.maxLtv)} · {m.marketOpen ? 'live' : 'frozen price'}
             {connected && m.balance > 0n ? ` · ${qty(m.balance, 2)} held` : ''}
           </div>
         </button>
