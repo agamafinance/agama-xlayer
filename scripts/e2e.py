@@ -492,7 +492,16 @@ def part_b():
     f12 = earn_pos("frank")
     ok(f12["debt"] > 0 and f12["hf"] > 14 * RAY // 10,
        f"but 22% goes through, at HF {f12['hf'] / RAY:.3f}: the same cushion as a weekday open")
-    send("frank", C["earnRouter"], "close(address)", A["TSLA"])
+    # Put Frank back to flat for step 13. A close on the buffer alone lands a
+    # rounding short once interest has accrued, which is what `closeWithTopUp`
+    # is for; step 13 exercises that path on purpose, this is only cleanup.
+    short12 = num(call(C["earnRouter"], "closeShortfall(address,address)(uint256)", ADDR["frank"], A["TSLA"]))
+    if short12 == 0:
+        send("frank", C["earnRouter"], "close(address)", A["TSLA"])
+    else:
+        cap12 = short12 + short12 // 100 + 10_000
+        send("frank", T["USDG"], "approve(address,uint256)", C["earnRouter"], str(cap12))
+        send("frank", C["earnRouter"], "closeWithTopUp(address,uint256)", A["TSLA"], str(cap12))
     # The reopen has to come from the keeper, not from us. `pushRedStone`
     # refuses to write a ticker whose status says closed, so RedStone cannot
     # lift its own freeze; if the relay skips it here the market stays shut
@@ -508,6 +517,8 @@ def part_b():
     push("TSLA", p0, is_open=True)  # back to the scenario's baseline price
 
     step("13. Frank: Earn, soft deleverage, recovery, close with a wallet top-up")
+    # Its own approval rather than whatever step 12 happened to leave behind.
+    send("frank", T["wTSLAx"], "approve(address,uint256)", C["earnRouter"], str(10 * E18))
     send("frank", C["earnRouter"], "open(address,uint256,uint256)", A["TSLA"], str(10 * E18), "2500")
     f = earn_pos("frank")
     ok(f["debt"] > 0, f"Frank borrowed {f['debt'] / E6:.2f} USDG")
