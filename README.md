@@ -119,8 +119,8 @@ flowchart TB
 The two to open first, because users call them directly and so they are the ones
 with transactions to look at:
 
-- **ArrowLendingPool** [`0x3F1DA390bbe93916065fB4045ae87c9aC6cf982a`](https://www.oklink.com/xlayer-test/address/0x3F1DA390bbe93916065fB4045ae87c9aC6cf982a)
-- **AgamaEarnRouter** [`0xa82CEae929e6aA6C5831256559cA563A79b62435`](https://www.oklink.com/xlayer-test/address/0xa82CEae929e6aA6C5831256559cA563A79b62435)
+- **ArrowLendingPool** [`0x5Df7e6f67DBb4520e3c40e02E0a1fBC7a74E40E8`](https://www.oklink.com/xlayer-test/address/0x5Df7e6f67DBb4520e3c40e02E0a1fBC7a74E40E8)
+- **AgamaEarnRouter** [`0x1b9e3de861C836e5aF729e2B1bDb4cc8839Fd78D`](https://www.oklink.com/xlayer-test/address/0x1b9e3de861C836e5aF729e2B1bDb4cc8839Fd78D)
 
 ## Run it
 
