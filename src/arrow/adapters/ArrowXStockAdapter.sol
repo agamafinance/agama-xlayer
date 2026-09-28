@@ -25,11 +25,18 @@ import {StockOracle} from "../oracle/StockOracle.sol";
 ///         wrapper token is worth (1.0057 for wSPYx today: accumulated
 ///         dividends). One base xStock tracks one underlying share.
 ///
-///         Market hours (read from the StockOracle feed):
-///           - closed market: `borrowAllowed()` is false, and the liquidation
-///             threshold drops by `WEEKEND_BUFFER_BPS` so a Monday gap is
-///             absorbed by a thicker cushion instead of by bad debt.
-///           - open market: base parameters.
+///         Market hours (read from the StockOracle feed). The chain never
+///         closes and neither does this market: what closes is the equity
+///         session, and with it the price feed, which stops moving from the
+///         Friday close until Monday. Borrowing stays open against that frozen
+///         price, on tighter terms:
+///           - closed session: both `MAX_LTV` and the liquidation threshold
+///             drop by `WEEKEND_BUFFER_BPS`, so a position opened out of hours
+///             carries the same cushion as one opened in them, and a Monday
+///             gap is absorbed by that cushion instead of by bad debt.
+///           - open session: base parameters.
+///           - either way, `borrowAllowed()` only asks whether the price is
+///             fresh. A stale feed is what stops a borrow, not the clock.
 ///
 /// @dev    Values are returned in pool-asset base units (USDG, 6 decimals),
 ///         assuming 1 USDG = 1 USD.
@@ -47,7 +54,7 @@ contract ArrowXStockAdapter is IArrowAdapter, Ownable {
     /// @notice 10^(18 - poolDecimals): converts a 1e18 USD value into pool units.
     uint256 public immutable USD_TO_POOL;
 
-    uint256 public immutable override MAX_LTV;
+    uint256 public immutable BASE_MAX_LTV;
     uint256 public immutable BASE_LIQUIDATION_THRESHOLD;
     uint256 public immutable override LIQUIDATION_BONUS;
     uint256 public immutable WEEKEND_BUFFER_BPS;
@@ -92,7 +99,7 @@ contract ArrowXStockAdapter is IArrowAdapter, Ownable {
         TICKER = ticker;
         oracle = oracle_;
         USD_TO_POOL = 10 ** (18 - poolDecimals);
-        MAX_LTV = maxLtvBps;
+        BASE_MAX_LTV = maxLtvBps;
         BASE_LIQUIDATION_THRESHOLD = liquidationThresholdBps;
         LIQUIDATION_BONUS = liquidationBonusBps;
         WEEKEND_BUFFER_BPS = weekendBufferBps;
@@ -111,14 +118,28 @@ contract ArrowXStockAdapter is IArrowAdapter, Ownable {
         return BASE_LIQUIDATION_THRESHOLD - WEEKEND_BUFFER_BPS;
     }
 
+    /// @notice How much can be borrowed against this stock, now.
+    /// @dev    Moves with the liquidation threshold, so the distance between
+    ///         the two is the same in session and out of it. Lending at the
+    ///         weekday maximum against a price that stopped moving on Friday
+    ///         would put a new position one Monday gap from liquidation.
+    function MAX_LTV() public view override returns (uint256) {
+        if (oracle.isMarketOpen(TICKER)) return BASE_MAX_LTV;
+        return BASE_MAX_LTV - WEEKEND_BUFFER_BPS;
+    }
+
     function ORACLE_STALENESS_MAX() external view override returns (uint256) {
         return oracle.maxOpenStaleness();
     }
 
     /// @notice New borrows only while the market is open AND the price is fresh.
+    /// @notice Whether the pool may create new debt against this stock.
+    /// @dev    A fresh price, and nothing else. The equity session being shut
+    ///         tightens the terms above rather than closing the market: these
+    ///         are tokens on a chain that does not keep office hours.
     function borrowAllowed() external view override returns (bool) {
-        try oracle.getPrice(TICKER) returns (uint256, uint256, bool open) {
-            return open;
+        try oracle.getPrice(TICKER) returns (uint256, uint256, bool) {
+            return true;
         } catch {
             return false;
         }

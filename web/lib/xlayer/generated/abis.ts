@@ -6990,6 +6990,19 @@ export const xStockAdapterAbi = [
   },
   {
     "type": "function",
+    "name": "BASE_MAX_LTV",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "LIQUIDATION_BONUS",
     "inputs": [],
     "outputs": [

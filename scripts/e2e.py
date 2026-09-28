@@ -19,7 +19,8 @@ Scenario (every step asserted on-chain state):
 Part B (the remaining paths):
   10. Dave supplies 1,000 USDG to Arrow as a lender
   11. Erin stakes 500 USDG in the stability pool; an exit before the cooldown is refused
-  12. Market closed: TSLA frozen, new borrows refused, liquidation threshold 40% -> 32%, then reopen
+  12. Equity session closed: TSLA frozen, terms tightened both sides (LTV 30->22, threshold
+      40->32), borrowing still open at the tighter level, then the relay reopens the session
   13. Frank: Earn, soft deleverage, recovery, close with a wallet top-up (closeWithTopUp)
   14. Grace: Earn, Amplify stacked on the Earn shares, close Amplify (equity goes back to the Earn
       buffer, not the wallet), close Earn on that buffer
@@ -475,14 +476,23 @@ def part_b():
     req = call(C["stabilityPool"], "exitRequests(address)(uint128,uint64)", ADDR["erin"]).splitlines()
     ok(num(req[0]) == erin_sp, f"exit requested, unlocks at {num(req[1])}")
 
-    step("12. market closed: TSLA frozen, borrows refused, threshold tightened")
+    step("12. equity session closed: price frozen, terms tightened, market still open")
     push("TSLA", p0, is_open=False)
-    ok(call(A["TSLA"], "borrowAllowed()(bool)") == "false", "borrowAllowed = false")
+    ok(call(A["TSLA"], "borrowAllowed()(bool)") == "true",
+       "borrowAllowed stays true: a shut session is not a shut market")
     lt = num(call(A["TSLA"], "LIQUIDATION_THRESHOLD()(uint256)"))
-    ok(lt == 3_200, f"liquidation threshold {lt / 100:.0f}% (40% - 8% weekend buffer)")
+    ml = num(call(A["TSLA"], "MAX_LTV()(uint256)"))
+    ok(lt == 3_200 and ml == 2_200,
+       f"terms tightened on both sides: max LTV {ml / 100:.0f}%, liquidation at {lt / 100:.0f}% "
+       f"(each 8% under the weekday figure)")
     send("frank", T["wTSLAx"], "approve(address,uint256)", C["earnRouter"], str(10 * E18))
     ok(reverts("frank", C["earnRouter"], "open(address,uint256,uint256)", A["TSLA"], str(10 * E18), "2500"),
-       "Earn open refused while the market is closed")
+       "the weekday 25% is refused out of session")
+    send("frank", C["earnRouter"], "open(address,uint256,uint256)", A["TSLA"], str(10 * E18), "2200")
+    f12 = earn_pos("frank")
+    ok(f12["debt"] > 0 and f12["hf"] > 14 * RAY // 10,
+       f"but 22% goes through, at HF {f12['hf'] / RAY:.3f}: the same cushion as a weekday open")
+    send("frank", C["earnRouter"], "close(address)", A["TSLA"])
     # The reopen has to come from the keeper, not from us. `pushRedStone`
     # refuses to write a ticker whose status says closed, so RedStone cannot
     # lift its own freeze; if the relay skips it here the market stays shut
@@ -493,8 +503,8 @@ def part_b():
         cast("rpc", "evm_increaseTime", "30")
         cast("rpc", "evm_mine")
     keeper("prices")
-    ok(call(A["TSLA"], "borrowAllowed()(bool)") == "true",
-       "the keeper relay reopened the market on its own")
+    ok(num(call(A["TSLA"], "MAX_LTV()(uint256)")) == 3_000,
+       "the keeper relay reopened the session on its own, weekday terms are back")
     push("TSLA", p0, is_open=True)  # back to the scenario's baseline price
 
     step("13. Frank: Earn, soft deleverage, recovery, close with a wallet top-up")

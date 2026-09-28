@@ -244,7 +244,7 @@ export default function XLayerAmplifyPage() {
                   : busy
                     ? status || 'Working…'
                     : !m?.borrowAllowed
-                      ? 'Market closed'
+                      ? 'No fresh price'
                       : `Open at ${leverage.toFixed(2)}x`}
               </button>
               {status && !busy && pending === 'open' && (

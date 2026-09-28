@@ -37,13 +37,13 @@ flowchart TB
 
     subgraph arrow["ARROW FINANCE ON X LAYER"]
         POOL["ArrowLendingPool<br/>ERC-4626 on USDG / isolated debt per market"]
-        XA["ArrowXStockAdapter x4<br/>TSLAx / NVDAx / SPYx / AAPLx<br/>LTV / liquidation threshold / market hours"]
+        XA["ArrowXStockAdapter x4<br/>TSLAx / NVDAx / SPYx / AAPLx<br/>LTV and threshold, tighter out of session"]
         VA["ArrowVaultShareAdapter<br/>CAPO cap / NAV circuit breaker"]
         SP["ArrowStabilityPool<br/>partial liquidation / buyback at -3%"]
     end
 
     subgraph price["THE PRICE LAYER (X Layer has no equity feed)"]
-        ORACLE["RedStoneStockOracle<br/>3 of 5 signers / market status"]
+        ORACLE["RedStoneStockOracle<br/>3 of 5 signers / session status"]
         RS["RedStone signed reports"]
         CL["Chainlink SPY relay<br/>bounded, from Arbitrum"]
     end
@@ -69,7 +69,7 @@ flowchart TB
     AGENTS -->|"hold the level / buy more stock<br/>deleverage before selling"| AC
     RS --> ORACLE
     CL --> ORACLE
-    ORACLE -->|"price + open or closed"| XA
+    ORACLE -->|"price + session status"| XA
 
     classDef actor fill:#eff6ff,stroke:#2563eb,color:#1e40af
     classDef product fill:#f0fdf4,stroke:#22c55e,color:#15803d
@@ -96,9 +96,14 @@ flowchart TB
 - **Straight from the OKX app.** A withdrawal delivers the base xStock, not the
   ERC-4626 wrapper the markets take. Deposits accept it as is and closing hands
   it back the same way, ready for an OKX deposit.
+- **Open around the clock.** The chain does not keep office hours and neither
+  does this market. What closes is the equity session, and with it the price
+  feed, so out of session the max LTV and the liquidation threshold drop by the
+  same buffer: a position opened on a Saturday sits as far from liquidation as
+  one opened on a Tuesday. Only a stale price stops a borrow.
 - **The price layer is part of the build.** X Layer has no equity feed, from
   anyone. RedStone reports verified on-chain, a bounded Chainlink relay for SPY,
-  market hours, a weekend buffer, and no fallback price ever.
+  session status, and no fallback price ever.
 - **No buttons for the automation.** The position card says the agents are
   running and what they last did. Anyone can run them; we are one caller.
 

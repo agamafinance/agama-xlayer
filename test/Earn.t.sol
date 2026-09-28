@@ -48,20 +48,36 @@ contract EarnForkTest is BaseFork {
         assertLt(leftover, 20e6);
     }
 
-    function test_marketClosed_blocksNewBorrows_andTightensThreshold() public {
-        _openEarn(alice, 5e18, 2_500);
+    /// The chain does not keep office hours, so neither does the market. What
+    /// closes is the equity session, and with it the price feed: the terms
+    /// tighten by the weekend buffer on both sides at once, so a position
+    /// opened out of session sits the same distance from liquidation as one
+    /// opened in it.
+    function test_sessionClosed_keepsBorrowingOpenOnTighterTerms() public {
         uint256 t = _warp(60);
         vm.prank(keeper);
         d.oracle.push("TSLA", TSLA_PX, uint64(t), false);
 
-        assertFalse(d.tsla.borrowAllowed());
+        assertTrue(d.tsla.borrowAllowed(), "a shut session is not a shut market");
         assertEq(d.tsla.LIQUIDATION_THRESHOLD(), 3_200, "40% - 8% weekend buffer");
+        assertEq(d.tsla.MAX_LTV(), 2_200, "30% - 8%, the same buffer on the other side");
 
+        // The weekday maximum is refused, the out of session one is not.
         vm.startPrank(alice);
-        wtsla.approve(address(d.earn), 5e18);
-        vm.expectRevert(AgamaEarnRouter.MarketClosed.selector);
-        d.earn.open(address(d.tsla), 5e18, 2_500);
+        wtsla.approve(address(d.earn), 10e18);
+        vm.expectRevert(abi.encodeWithSelector(AgamaEarnRouter.LtvTooHigh.selector, 3_000, 2_200));
+        d.earn.open(address(d.tsla), 5e18, 3_000);
+        d.earn.open(address(d.tsla), 5e18, 2_200);
         vm.stopPrank();
+        assertGt(
+            d.pool.getPositionScaledDebt(address(d.tsla), address(_account(alice)), ""),
+            0,
+            "the borrow went through with the session shut"
+        );
+
+        // And it lands with the cushion the open market gives, near enough.
+        uint256 hf = d.pool.calculateHealthFactor(address(d.tsla), address(_account(alice)), "");
+        assertGt(hf, 1.4e27, "opened out of session, still well clear of liquidation");
 
         // Frozen price stays usable for valuation for up to 4 days.
         _warp(3 days);
@@ -183,7 +199,9 @@ contract EarnForkTest is BaseFork {
         acct.earnClose(bob, address(d.tsla), false);
     }
 
-    function test_directBorrow_blockedWhenMarketClosed() public {
+    /// A stale price is what stops a borrow, not the clock. The feed survives
+    /// the weekend by design, so the test has to outlive it to see the block.
+    function test_directBorrow_blockedWhenThePriceGoesStale() public {
         uint256 t = _warp(60);
         vm.prank(keeper);
         d.oracle.push("TSLA", TSLA_PX, uint64(t), false);
@@ -191,6 +209,16 @@ contract EarnForkTest is BaseFork {
         d.pool.openVaultPosition();
         wtsla.approve(address(d.tsla), 1e18);
         d.pool.depositAsset(address(d.tsla), abi.encode(uint256(1e18)));
+
+        // Session shut, price fresh: the borrow goes through.
+        d.pool.borrow(address(d.tsla), "", 10e6);
+        vm.stopPrank();
+
+        assertTrue(d.tsla.borrowAllowed());
+        _warp(5 days);
+        assertFalse(d.tsla.borrowAllowed(), "nobody has priced this in five days");
+
+        vm.startPrank(alice);
         vm.expectRevert(ArrowLendingPool.BorrowNotAllowed.selector);
         d.pool.borrow(address(d.tsla), "", 10e6);
         vm.stopPrank();

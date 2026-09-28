@@ -214,7 +214,7 @@ export default function XLayerEarnPage() {
                 <h2 className="text-[17px] font-semibold text-fg">Deposit {m?.stock.base ?? ''}</h2>
                 {m && (
                   <span className={m.marketOpen ? 'rounded-full bg-[#254839]/[0.06] px-3 py-1 text-[12px] text-fg' : 'rounded-full bg-[#b4571f]/10 px-3 py-1 text-[12px] text-[#b4571f]'}>
-                    {m.marketOpen ? 'Market open' : 'Market closed'}
+                    {m.marketOpen ? 'Market open' : 'Session closed, tighter terms'}
                   </span>
                 )}
               </div>
@@ -278,12 +278,19 @@ export default function XLayerEarnPage() {
                   value={borrowedUsdg > 0n ? `${usd(borrowedUsdg)} · ${pct(ltvBps)} of the stock` : '—'}
                 />
                 <Row label="Extra yield on the stock" value={extra !== undefined && ltvBps > 0n ? `${rayPct(extra)} a year` : '—'} />
-                <Row label="Health factor at open" value={canBorrow ? '1.60' : 'No debt, market closed'} />
+                <Row label="Health factor at open" value={canBorrow ? '1.60' : 'No price'} />
               </dl>
+              {m && !m.marketOpen && canBorrow && (
+                <p className="mt-3 text-[12px] text-fg-muted">
+                  The equity session is shut, so the price stopped moving at the close. You can still
+                  deposit and borrow: the level is tightened to {pct(m.maxLtv)} until it reopens, which
+                  leaves a position opened now the same cushion as one opened on a weekday.
+                </p>
+              )}
               {!canBorrow && (
                 <p className="mt-3 text-[12px] text-[#b4571f]">
-                  The equity market is closed, so new borrows are frozen on chain. Your stock still goes in
-                  as collateral, and the agents start borrowing against it the moment the market reopens.
+                  Nobody has priced this stock recently enough to lend against it. Your stock still goes in
+                  as collateral, and the agents start borrowing the moment a fresh price lands.
                 </p>
               )}
 
