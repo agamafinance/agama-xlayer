@@ -166,7 +166,7 @@ export default function XLayerLendPage() {
               <Row label="Collateral" value="wTSLAx, wNVDAx, wSPYx, wAAPLx, vault shares" />
               <Row label="Price" value="RedStone reports, verified on chain" />
               <Row label="Liquidation" value="Partial, absorbed by the stability pool" />
-              <Row label="Always open" value="Borrowing never stops; the terms tighten while a price is frozen" />
+              <Row label="Always open" value="Priced around the clock, off the stock in session and off the token out of it" />
             </dl>
             <p className="mt-4 rounded-2xl border border-[#254839]/12 bg-white/60 p-4 text-[13px] text-fg-muted">
               A borrower is never liquidated on the first dip: under a health factor of 1.15 anyone can

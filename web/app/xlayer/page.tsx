@@ -214,7 +214,7 @@ export default function XLayerEarnPage() {
                 <h2 className="text-[17px] font-semibold text-fg">Deposit {m?.stock.base ?? ''}</h2>
                 {m && (
                   <span className={m.marketOpen ? 'rounded-full bg-[#254839]/[0.06] px-3 py-1 text-[12px] text-fg' : 'rounded-full bg-[#b4571f]/10 px-3 py-1 text-[12px] text-[#b4571f]'}>
-                    {m.marketOpen ? 'Live price' : 'Price frozen'}
+                    {m.marketOpen ? 'Live price' : 'No live price'}
                   </span>
                 )}
               </div>
@@ -282,10 +282,10 @@ export default function XLayerEarnPage() {
               </dl>
               {m && !m.marketOpen && canBorrow && (
                 <p className="mt-3 text-[12px] text-fg-muted">
-                  {m.stock.base} is priced at the last trade of the session, and that number will not move
-                  until the next one opens. Deposit and borrow all the same, at
-                  {' '}{pct(m.maxLtv)} instead of the weekday level, which leaves the position the same
-                  distance from liquidation while the price catches up.
+                  Nobody has priced {m.stock.base} recently: neither the equity feed nor the token&apos;s own
+                  market answered, so this is the last price anyone signed. Deposit and borrow all the
+                  same, at {pct(m.maxLtv)} rather than the usual level, which leaves the position the same
+                  distance from liquidation until a fresh price lands.
                 </p>
               )}
               {!canBorrow && (
@@ -414,14 +414,13 @@ function MarketCards({
           </div>
           <div className="mt-1 flex items-baseline gap-2">
             <span className="text-[22px] font-semibold tabular-nums">{price(m.price)}</span>
-            {/* Out of session the price is frozen on purpose, so an
-                age would read as staleness. Say which it is. */}
-            <span className="text-[11px] opacity-70">
-              {m.marketOpen ? ago(m.observedAt) : 'at the close'}
-            </span>
+            {/* The price moves around the clock now: in session it is the
+                equity feed, out of it the xStock's own market on Solana. So
+                its age is the honest thing to show, always. */}
+            <span className="text-[11px] opacity-70">{ago(m.observedAt)}</span>
           </div>
           <div className="mt-1 text-[11px] opacity-70">
-            Max LTV {pct(m.maxLtv)} · {m.marketOpen ? 'live' : 'frozen price'}
+            Max LTV {pct(m.maxLtv)}{m.marketOpen ? '' : ' · last known price'}
             {connected && m.balance > 0n ? ` · ${qty(m.balance, 2)} held` : ''}
           </div>
         </button>
