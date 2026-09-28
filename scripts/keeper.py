@@ -178,7 +178,16 @@ def first_int(s):
 
 
 def market_open_24_5(now_utc=None):
-    """xStocks trade 24/5: Sunday 20:00 to Friday 20:00 New York time."""
+    """Whether the US equity session is trading: Sunday 20:00 to Friday 20:00 New York.
+
+    `SESSION=closed` forces the answer, which is the only way to rehearse a
+    weekend on a Tuesday: everything downstream of this, the xStock relay and
+    the tightened terms, is unreachable the rest of the week. It picks a price
+    source and never loosens anything, so a flag left set is a safe mistake.
+    """
+    forced = os.environ.get("SESSION")
+    if forced:
+        return forced == "open"
     ny = (now_utc or datetime.now(timezone.utc)).astimezone(ZoneInfo("America/New_York"))
     if ny.date() in NYSE_HOLIDAYS_2026:
         return False
