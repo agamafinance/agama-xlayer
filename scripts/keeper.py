@@ -37,7 +37,7 @@ Requires Foundry's `cast` on PATH. Config via env:
   RPC_URL (default https://xlayerrpc.okx.com), DEPLOYMENT (deployments/196.json),
   KEEPER_KEY (private key with KEEPER_ROLE), ARB_RPC_URL, DS_API_KEY, DS_API_SECRET,
   DS_HOST (default https://api.dataengine.chain.link), INTERVAL (seconds, default 300),
-  ONCE=1 to run a single tick, JOBS=redstone,prices,protection,agents,snapshot to pick jobs.
+  ONCE=1 to run a single tick, JOBS=redstone,prices,snapshot,protection,agents to pick jobs.
 """
 
 import hashlib
@@ -305,9 +305,10 @@ def tick_protection(dep):
     pool = dep["contracts"]["pool"]
     sp = dep["contracts"]["stabilityPool"]
     stocks = [dep["adapters"][t] for t in TICKERS]
-    n = first_int(call(factory, "accountCount()(uint256)"))
-    for i in range(n):
-        acct = call(factory, "accounts(uint256)(address)", str(i))
+    for i, acct in accounts_from(factory, "protection"):
+        if out_of_time("protection"):
+            CURSOR["protection"] = i
+            return
         for adapter in stocks + [dep["adapters"]["VAULT"]]:
             debt = first_int(call(pool, "getPositionScaledDebt(address,address,bytes)(uint256)", adapter, acct, "0x"))
             if debt == 0:
@@ -358,9 +359,10 @@ def tick_agents(dep):
     """Keep every position on its target, and grow the stock with the yield."""
     factory = dep["contracts"]["factory"]
     pool = dep["contracts"]["pool"]
-    n = first_int(call(factory, "accountCount()(uint256)"))
-    for i in range(n):
-        acct = call(factory, "accounts(uint256)(address)", str(i))
+    for i, acct in accounts_from(factory, "agents"):
+        if out_of_time("agents"):
+            CURSOR["agents"] = i
+            return
         for ticker in TICKERS:
             adapter = dep["adapters"][ticker]
             target = first_int(call(acct, "targetLtvBps(address)(uint256)", adapter))
@@ -413,21 +415,78 @@ def tick_snapshot(dep):
         log("vault CAPO snapshot")
 
 
+PRICE_JOBS = ("redstone", "prices")
+# Seconds a tick may spend on anything other than a price push.
+HEAVY_BUDGET = int(os.environ.get("HEAVY_BUDGET", "150"))
+# Where the account walk stopped last time, so cutting it short still makes
+# progress round the list rather than rechecking the same head every tick.
+CURSOR = {"protection": 0, "agents": 0}
+# When the current tick has to be out of the heavy jobs. Set by main.
+DEADLINE = [float("inf")]
+
+
+def out_of_time(job):
+    if time.time() < DEADLINE[0]:
+        return False
+    log(f"{job} paused, out of budget; it resumes where it stopped")
+    return True
+
+
+def accounts_from(factory, job):
+    """Every account, starting where `job` left off."""
+    n = first_int(call(factory, "accountCount()(uint256)"))
+    if n == 0:
+        return []
+    start = CURSOR[job] % n
+    order = [(start + k) % n for k in range(n)]
+    CURSOR[job] = (start + n) % n
+    return [(i, call(factory, "accounts(uint256)(address)", str(i))) for i in order]
+
+
 def main():
     dep = json.load(open(DEPLOYMENT))
     log("keeper on chain", dep["chainId"], "source:", "Data Streams" if DS_KEY else "Chainlink Arbitrum relay")
+    jobs = {"redstone": tick_redstone, "prices": tick_prices, "protection": tick_protection,
+            "agents": tick_agents, "snapshot": tick_snapshot}
+    selected = os.environ.get("JOBS", "redstone,prices,snapshot,protection,agents").split(",")
+    once = bool(os.environ.get("ONCE"))
+    heavy = [j for j in selected if j not in PRICE_JOBS]
+
     while True:
-        jobs = {"redstone": tick_redstone, "prices": tick_prices, "protection": tick_protection,
-                "agents": tick_agents, "snapshot": tick_snapshot}
-        selected = os.environ.get("JOBS", "redstone,prices,protection,agents,snapshot").split(",")
-        for job in (jobs[j] for j in selected):
+        started = time.time()
+        # The budget belongs to the heavy jobs, so it starts when they do, not
+        # when the tick does: a price push that took twenty seconds must not
+        # come out of the share meant for walking the accounts.
+        heavy_started = None
+        for name in selected:
+            # Prices first and always. The rest walks every account against
+            # every market, which grows with the deployment and slows down
+            # further when a read reverts, and a tick that overruns is a tick
+            # that did not refresh a price: the oracle then holds nothing
+            # fresher than an hour and the whole app stops quoting. This is
+            # what took the market offline on 2026-09-28. The heavy jobs get
+            # what is left of the budget and pick up where they stopped.
+            if once or name in PRICE_JOBS:
+                DEADLINE[0] = float("inf")
+            else:
+                # A share of the budget each, in order, so the first heavy job
+                # cannot eat the whole tick and leave the others never run.
+                if heavy_started is None:
+                    heavy_started = time.time()
+                k = heavy.index(name)
+                DEADLINE[0] = heavy_started + HEAVY_BUDGET * (k + 1) / len(heavy)
+                if time.time() > DEADLINE[0]:
+                    log(f"{name} skipped, its share of the tick is gone")
+                    continue
             try:
-                job(dep)
+                jobs[name](dep)
             except Exception as e:  # keep ticking
-                log(f"{job.__name__} failed: {e}")
-        if os.environ.get("ONCE"):
+                log(f"{name} failed: {e}")
+        if once:
             return
-        time.sleep(INTERVAL)
+        # Measured from the start of the tick, so a slow one shortens the wait
+        # instead of pushing the next price out by its own length.
+        time.sleep(max(15, INTERVAL - (time.time() - started)))
 
 
 if __name__ == "__main__":
