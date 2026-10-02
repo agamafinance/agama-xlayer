@@ -94,9 +94,11 @@ export function XLayerConnectPill() {
             </button>
           ))}
 
-          {/* Nothing installed, or only some of them: the way out is the
-              download page, not a dead button. */}
-          {WALLETS.filter((k) => !found.some((f) => f.id === k.id)).map((k) => (
+          {/* Only when none of them is here. Offering to install a wallet
+              beside two the user already has is noise in a chooser: they
+              came to pick one, not to shop. With nothing installed the
+              download page is the only way out, so then it is the menu. */}
+          {found.length === 0 && WALLETS.map((k) => (
             <a
               key={k.id}
               href={k.download}
