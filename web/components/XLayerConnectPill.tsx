@@ -104,7 +104,9 @@ export function XLayerConnectPill() {
               rel="noreferrer"
               className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[14px] text-fg-muted hover:bg-[#254839]/[0.07]"
             >
-              <span className="h-6 w-6 shrink-0 rounded-full bg-[#254839]/[0.10]" />
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#254839]/[0.35] text-[11px] font-semibold text-[#fdf8ed]">
+                {k.name[0]}
+              </span>
               {k.name}
               <span className="ml-auto text-[12px]">Install</span>
             </a>

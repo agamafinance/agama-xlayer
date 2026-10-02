@@ -417,13 +417,15 @@ export interface FoundWallet extends WalletKind {
 }
 
 /// Every wallet from the list that is actually installed.
+///
+/// Only the three we name. A browser with six extensions announced a list of
+/// six, most of which have no business on X Layer, and the chooser stopped
+/// reading as a choice. These three are the ones we test against.
 export function availableWallets(): FoundWallet[] {
   if (typeof window === 'undefined') return [];
   const w = window as any;
   const out: FoundWallet[] = [];
-  const claimed = new Set<string>();
 
-  // The three we name, in the order we offer them.
   for (const kind of WALLETS) {
     const announced = discovered.find(
       (p) => kind.rdns.includes(p.info.rdns)
@@ -431,22 +433,7 @@ export function availableWallets(): FoundWallet[] {
     );
     const provider = announced?.provider ?? kind.legacy?.(w);
     if (!provider) continue;
-    if (announced) claimed.add(announced.info.rdns);
     out.push({ ...kind, provider, icon: announced?.info.icon });
-  }
-
-  // And anything else that announced itself. Someone who has a wallet we never
-  // thought of has it installed, which is the only thing that matters here.
-  for (const a of discovered) {
-    if (claimed.has(a.info.rdns)) continue;
-    out.push({
-      id: a.info.rdns,
-      name: a.info.name || a.info.rdns,
-      rdns: [a.info.rdns],
-      download: '',
-      provider: a.provider,
-      icon: a.info.icon,
-    });
   }
   return out;
 }
