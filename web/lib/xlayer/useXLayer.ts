@@ -384,7 +384,13 @@ function pickInjected(w: any, match: (p: any) => boolean): any {
   const many: any[] = w.ethereum?.providers ?? [];
   const inList = many.find(match);
   if (inList) return inList;
-  return match(w.ethereum) ? w.ethereum : undefined;
+  // A browser with no wallet extension has no `window.ethereum` at all, and
+  // every matcher here reads a flag straight off the provider. Without this
+  // guard that read throws, the render asking for the wallet list throws with
+  // it, and the whole page becomes the global error screen: the app looked
+  // dead to anyone who had not already installed a wallet, which is most of
+  // the people being shown it.
+  return w.ethereum && match(w.ethereum) ? w.ethereum : undefined;
 }
 
 interface Announced {
