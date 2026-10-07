@@ -10,7 +10,12 @@ import {useEffect, useRef, useState} from 'react';
 /// the bottom, reasoning streamed inline, and no JSON on screen. That is what
 /// this is, scaled down to a corner panel.
 
-type Turn = {role: 'you' | 'signo'; text: string; status?: string};
+type Turn = {role: 'you' | 'signo'; text: string; status?: string; link?: boolean};
+
+/// The agent Signo hosts for us. It answers today; ours answers once Signo
+/// turns the partner scope on, so until then the panel points at theirs rather
+/// than leaving the question unanswered.
+const HOSTED = 'https://app.signo.fi/agama';
 
 const EXAMPLES = [
   'How does Agama Earn work?',
@@ -50,7 +55,17 @@ export function SignoChat({wallet}: {wallet?: string}) {
 
       if (!res.ok || !res.body) {
         const why = await res.json().catch(() => ({}));
-        land({text: why.friendly_message ?? 'Signo could not answer that one.', status: undefined});
+        // Not switched on yet is the expected answer during the beta, not a
+        // fault: say so plainly and hand the question to the agent that can
+        // already take it.
+        const pending = res.status === 403;
+        land({
+          text: pending
+            ? 'The agent is not switched on for this surface yet. Signo hosts it in the meantime:'
+            : (why.friendly_message ?? 'Signo could not answer that one.'),
+          link: pending,
+          status: undefined,
+        });
         return;
       }
 
@@ -119,7 +134,12 @@ export function SignoChat({wallet}: {wallet?: string}) {
     <div className="fixed bottom-5 right-5 z-50 flex h-[min(620px,calc(100vh-3rem))] w-[min(400px,calc(100vw-2.5rem))] flex-col overflow-hidden rounded-2xl bg-[#fdf8ed] shadow-2xl ring-1 ring-black/10">
       <header className="flex items-center justify-between bg-[#254839] px-4 py-3 text-[#fdf8ed]">
         <div>
-          <p className="text-[14px] font-medium leading-tight">Agama agent</p>
+          <p className="flex items-center gap-2 text-[14px] font-medium leading-tight">
+            Agama agent
+            <span className="rounded-full bg-[#fdf8ed]/20 px-2 py-0.5 text-[10px] font-normal tracking-wide">
+              PREVIEW
+            </span>
+          </p>
           <p className="text-[11px] opacity-70">Powered by Signo</p>
         </div>
         <button
@@ -138,6 +158,8 @@ export function SignoChat({wallet}: {wallet?: string}) {
             <p className="text-[13px] leading-relaxed text-[#254839]/70">
               Ask about the markets, the agents, or what a position does once it is open. Agama runs on
               X Layer testnet, so the agent explains and watches; it does not prepare transactions.
+              Answers here are still being switched on, and the hosted agent takes the question in the
+              meantime.
             </p>
             <div className="flex flex-wrap gap-2">
               {EXAMPLES.map((e) => (
@@ -166,6 +188,16 @@ export function SignoChat({wallet}: {wallet?: string}) {
               {t.text}
               {t.status && (
                 <span className="inline-block animate-pulse text-[#254839]/50">{t.status}…</span>
+              )}
+              {t.link && (
+                <a
+                  href={HOSTED}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-2 block w-fit rounded-full bg-[#254839] px-3 py-1.5 text-[12px] text-[#fdf8ed]"
+                >
+                  Open the Agama agent
+                </a>
               )}
             </div>
           </div>
